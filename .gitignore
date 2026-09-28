@@ -10,4 +10,5 @@ local.properties
 *.p12
 *.properties.local
 .idea/
+vendor/openvpn-engine/
 *.iml

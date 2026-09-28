@@ -4,6 +4,7 @@ android { namespace 'com.snaptvnow.tv'; compileSdk 36
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
+ implementation 'network.mysterium.openvpn:icsopenvpn:0.7.55-myst'
  implementation 'androidx.media3:media3-exoplayer:1.11.1'
  implementation 'androidx.media3:media3-exoplayer-hls:1.11.1'
  implementation 'androidx.media3:media3-ui:1.11.1'
