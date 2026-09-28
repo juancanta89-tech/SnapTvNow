@@ -17,19 +17,20 @@ final class Store extends SQLiteOpenHelper {
     private final Context app;
     private static final String FORMAT="snap-auto-sqlite-v1";
     static final String PENDING="Pendiente", DONE="Enviado", FAILED="Fallido", PAUSED="Pausado";
-    Store(Context c) { super(c,"snap_auto.db",null,5); app=c.getApplicationContext(); }
+    Store(Context c) { super(c,"snap_auto.db",null,6); app=c.getApplicationContext(); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE tasks (_id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, channel TEXT NOT NULL, recipient TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', body TEXT NOT NULL, at_ms INTEGER NOT NULL DEFAULT 0, repeat_rule TEXT NOT NULL DEFAULT 'Nunca', status TEXT NOT NULL DEFAULT 'Pendiente', keyword TEXT NOT NULL DEFAULT '', window_start TEXT NOT NULL DEFAULT '', window_end TEXT NOT NULL DEFAULT '', cooldown INTEGER NOT NULL DEFAULT 60, last_error TEXT NOT NULL DEFAULT '', source_fingerprint TEXT NOT NULL DEFAULT '', source_id INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE contacts (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL UNIQUE)");
         db.execSQL("CREATE TABLE templates (_id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL)");
         db.execSQL("CREATE TABLE history (_id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, phone TEXT NOT NULL, at_ms INTEGER NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '')");
         db.execSQL("CREATE TABLE throttle (rule_id INTEGER NOT NULL, phone TEXT NOT NULL, at_ms INTEGER NOT NULL, PRIMARY KEY(rule_id,phone))");
+        db.execSQL("CREATE TABLE sms_dispatch (task_id INTEGER NOT NULL, scheduled_at INTEGER NOT NULL, claimed_at INTEGER NOT NULL, PRIMARY KEY(task_id,scheduled_at))");
         marker(db);
         legacyTables(db);
     }
     private void marker(SQLiteDatabase db) { db.execSQL("CREATE TABLE IF NOT EXISTS app_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)");db.execSQL("INSERT OR REPLACE INTO app_metadata (name,value) VALUES ('format','"+FORMAT+"')"); }
     private void legacyTables(SQLiteDatabase db) {db.execSQL("CREATE TABLE IF NOT EXISTS legacy_imports (fingerprint TEXT PRIMARY KEY, imported_at INTEGER NOT NULL, source_count INTEGER NOT NULL)");db.execSQL("CREATE TABLE IF NOT EXISTS legacy_rows (_id INTEGER PRIMARY KEY AUTOINCREMENT, fingerprint TEXT NOT NULL, source_table TEXT NOT NULL, source_id INTEGER NOT NULL, payload TEXT NOT NULL)");}
-    @Override public void onUpgrade(SQLiteDatabase db,int old,int now) { if(old<1||old>now)throw new IllegalStateException("Migration required");if(old<2)marker(db);if(old<3)legacyTables(db);if(old<4){db.execSQL("ALTER TABLE tasks ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''");db.execSQL("ALTER TABLE tasks ADD COLUMN source_id INTEGER NOT NULL DEFAULT 0");AutoTextImporter.backfillLinks(db);}if(old<5)db.execSQL("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"); }
+    @Override public void onUpgrade(SQLiteDatabase db,int old,int now) { if(old<1||old>now)throw new IllegalStateException("Migration required");if(old<2)marker(db);if(old<3)legacyTables(db);if(old<4){db.execSQL("ALTER TABLE tasks ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''");db.execSQL("ALTER TABLE tasks ADD COLUMN source_id INTEGER NOT NULL DEFAULT 0");AutoTextImporter.backfillLinks(db);}if(old<5)db.execSQL("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");if(old<6)db.execSQL("CREATE TABLE sms_dispatch (task_id INTEGER NOT NULL, scheduled_at INTEGER NOT NULL, claimed_at INTEGER NOT NULL, PRIMARY KEY(task_id,scheduled_at))"); }
     static class Task {
         long id, at, sourceId; int cooldown; boolean pinned; String type,channel,recipient,name,body,repeat,status,keyword,start,end,error,sourceFingerprint;
         static Task from(Cursor c) {
@@ -118,6 +119,18 @@ final class Store extends SQLiteOpenHelper {
         if(changed||!t.sourceFingerprint.isEmpty())database.update("tasks",t.values(),"_id=?",new String[]{String.valueOf(t.id)});
     }
     synchronized void delete(long id) { getWritableDatabase().delete("tasks","_id=?",new String[]{""+id}); }
+    /** Claims a scheduled occurrence before requesting SMS delivery. A second alarm cannot send it again. */
+    synchronized boolean claimScheduledSms(long id,long at) {
+        SQLiteDatabase database=getWritableDatabase();database.beginTransaction();
+        try {
+            try(Cursor c=database.query("tasks",new String[]{"_id"},"_id=? AND at_ms=? AND status=? AND type='Programar' AND channel='SMS'",new String[]{""+id,""+at,PENDING},null,null,null)) {
+                if(!c.moveToFirst())return false;
+            }
+            ContentValues v=new ContentValues();v.put("task_id",id);v.put("scheduled_at",at);v.put("claimed_at",System.currentTimeMillis());
+            boolean claimed=database.insertWithOnConflict("sms_dispatch",null,v,SQLiteDatabase.CONFLICT_IGNORE)!=-1;
+            database.setTransactionSuccessful();return claimed;
+        } finally {database.endTransaction();}
+    }
     synchronized void log(long id,String phone,String status,String detail) { ContentValues v=new ContentValues(); v.put("task_id",id); v.put("phone",phone); v.put("at_ms",System.currentTimeMillis()); v.put("status",status); v.put("detail",detail); getWritableDatabase().insert("history",null,v); }
     synchronized boolean throttle(long id,String phone,int minutes) { long now=System.currentTimeMillis(); try(Cursor c=getReadableDatabase().query("throttle",new String[]{"at_ms"},"rule_id=? AND phone=?",new String[]{""+id,phone},null,null,null)) { if(c.moveToFirst() && now-c.getLong(0)<minutes*60000L)return false; } ContentValues v=new ContentValues();v.put("rule_id",id);v.put("phone",phone);v.put("at_ms",now);getWritableDatabase().insertWithOnConflict("throttle",null,v,SQLiteDatabase.CONFLICT_REPLACE);return true; }
     synchronized void addContact(String name,String phone) { ContentValues v=new ContentValues();v.put("name",name);v.put("phone",phone);getWritableDatabase().insertWithOnConflict("contacts",null,v,SQLiteDatabase.CONFLICT_REPLACE); }
@@ -165,8 +178,8 @@ final class Store extends SQLiteOpenHelper {
             SQLiteDatabase dest=getWritableDatabase();
             dest.beginTransaction();
             try {
-                for(String table:new String[]{"history","throttle","tasks","contacts","templates","legacy_rows","legacy_imports"})dest.delete(table,null,null);
-                for(String table:new String[]{"contacts","templates","tasks","history","throttle","legacy_imports","legacy_rows"}) {
+                for(String table:new String[]{"history","throttle","sms_dispatch","tasks","contacts","templates","legacy_rows","legacy_imports"})dest.delete(table,null,null);
+                for(String table:new String[]{"contacts","templates","tasks","history","throttle","sms_dispatch","legacy_imports","legacy_rows"}) {
                     if(!hasTable(source,table))continue;
                     try(Cursor c=source.query(table,null,null,null,null,null,null)) {
                         while(c.moveToNext()) {
