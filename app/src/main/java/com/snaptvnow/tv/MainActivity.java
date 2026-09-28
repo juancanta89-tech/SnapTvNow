@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
   private TextView action(String label,Runnable task){TextView v=text(label,15,WHITE,true);v.setGravity(Gravity.CENTER);v.setPadding(d(12),d(7),d(12),d(7));v.setBackground(shape(PANEL,12));v.setFocusable(true);v.setOnClickListener(w->task.run());v.setOnFocusChangeListener((w,focus)->{v.setBackground(focus?gradient(CYAN,0xff10abce,12):shape(PANEL,12));v.setTextColor(focus?NAVY:WHITE);v.setScaleX(focus?1.025f:1f);v.setScaleY(focus?1.025f:1f);});return v;}
   private void title(String s){body.addView(text(s,wide?25:22,WHITE,true));gap(body,12);}
   @Override public void onCreate(Bundle b){
-    super.onCreate(b);prefs=getSharedPreferences("demo",MODE_PRIVATE);
+    super.onCreate(b);prefs=getSharedPreferences("demo",MODE_PRIVATE);VpnTunnel.initialize();
     TextView loading=text("SNAPTVNOW\nConectando…",23,CYAN,true);
     loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(NAVY);setContentView(loading);
     new Thread(()->{
@@ -188,6 +188,7 @@ public class MainActivity extends Activity {
       enterLine(u,p);
     });enter.setBackground(gradient(CYAN,0xff0fb5cd,12));enter.setTextColor(NAVY);panel.addView(enter,new LinearLayout.LayoutParams(wide?d(350):-1,d(54)));
     gap(panel,14);TextView vpn=action("VPN",this::openVpn);panel.addView(vpn,new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));
+    if(VpnTunnel.isConnected()){gap(panel,8);panel.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));}
     gap(panel,9);panel.addView(text("Tu sesión se guarda cifrada en este dispositivo hasta que cierres sesión.",13,MUTED,false));
   }
   private void openVpn(){
@@ -242,6 +243,10 @@ public class MainActivity extends Activity {
     if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("VPN")
       .setMessage(message==null?"No se pudo iniciar la VPN.":message).setPositiveButton("Aceptar",null).show();
   });}
+  private void disconnectVpn(){
+    if(VpnTunnel.disconnect(this))Toast.makeText(this,"Desconectando VPN…",Toast.LENGTH_SHORT).show();
+    else showVpnError("No hay un túnel VPN activo.");
+  }
   private void enterLine(String u,String p){new Thread(()->{try{List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p);AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,u,p,connected.expires,connected.maxConnections);runOnUiThread(()->{client=connected;items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();});}catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show());}}).start();}
   private void checkDirectMessage(){
     final XtreamClient session=client;if(session==null)return;
@@ -482,7 +487,7 @@ public class MainActivity extends Activity {
   private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{if(!favorites.add(i.id))favorites.remove(i.id);prefs.edit().putBoolean("fav_"+i.id,favorites.contains(i.id)).apply();render();}).setNegativeButton("Cerrar",null).show();}
   private void search(){title("Buscar contenido");EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Buscar en la categoría cargada");input.setText(query);input.setTextColor(WHITE);input.setHintTextColor(MUTED);body.addView(input);gap(body,7);body.addView(action("Buscar",()->{query=input.getText().toString().trim();render();}),new LinearLayout.LayoutParams(d(150),d(46)));gap(body,18);List<Catalog.Item> matches=new ArrayList<>();for(Catalog.Item i:items)if(query.isEmpty()||i.title.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT)))matches.add(i);if(matches.isEmpty())body.addView(text("Sin resultados.",15,MUTED,false));else catalogRow(matches);}
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
-  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text("Seguridad: el proveedor utiliza HTTP sin cifrado; las credenciales pueden ser visibles en la red.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{SessionStore.clear(this);logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
+  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text("Seguridad: el proveedor utiliza HTTP sin cifrado; las credenciales pueden ser visibles en la red.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{SessionStore.clear(this);logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
   private void devices(){title("Dispositivos compatibles");body.addView(text("Amazon Fire TV · Firestick · Android TV · TV Box · Celular Android",18,WHITE,false));gap(body,12);body.addView(text("Usa el control remoto en TV o toca las tarjetas en tu celular.",15,MUTED,false));}
   private Catalog.Item nextChannel(Catalog.Item current){
     int start=-1;for(int i=0;i<items.size();i++)if(items.get(i).id.equals(current.id)){start=i;break;}
