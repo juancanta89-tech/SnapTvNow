@@ -12,6 +12,8 @@ public final class AlarmReceiver extends BroadcastReceiver {
         if("WhatsApp".equals(t.channel)) {
             Notices.assisted(c,t);
             t.status="Acción necesaria";db.save(t);db.log(t.id,t.recipient,"Acción necesaria","Abrir WhatsApp para enviar");
-        } else Messaging.send(c,t,t.recipient,Messaging.render(t.body,t.name),true);
+        } else if("SMS".equals(t.channel)&&db.claimScheduledSms(t.id,t.at)) {
+            Messaging.send(c,t,t.recipient,Messaging.render(t.body,t.name),true);
+        }
     }
 }
