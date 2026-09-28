@@ -37,14 +37,17 @@ final class CrashDiagnostics {
     });
   }
   static void starting(Context context){context.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-    .edit().putBoolean("starting",true).commit();}
+    .edit().putBoolean("starting",true).putString("state","INICIANDO").commit();}
+  static void state(Context context,String code){context.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+    .edit().putString("state",code).apply();}
   static void finished(Context context){context.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE)
     .edit().putBoolean("starting",false).apply();}
   static String consume(Context context){
     SharedPreferences prefs=context.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE);
     String crash=prefs.getString("crash",null);boolean starting=prefs.getBoolean("starting",false);
+    String lastState=prefs.getString("state","DESCONOCIDO");
     prefs.edit().remove("crash").putBoolean("starting",false).apply();
-    if(crash!=null)return "La app se cerró. Copia este diagnóstico para revisar el error:\n\n"+crash;
-    return starting?"La app se cerró durante el inicio de la VPN. No hubo una excepción Java registrada. Se necesita el registro de Android para conocer la causa exacta.":null;
+    if(crash!=null)return "La app se cerró. Último estado VPN: "+lastState+". Copia este diagnóstico para revisar el error:\n\n"+crash;
+    return starting?"La app se cerró durante el inicio de la VPN. Último estado: "+lastState+". No hubo una excepción Java registrada; se necesita el registro de Android para conocer la causa exacta.":null;
   }
 }

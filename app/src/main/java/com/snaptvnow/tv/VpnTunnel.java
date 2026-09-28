@@ -24,12 +24,14 @@ final class VpnTunnel {
   static void initialize(Context context){
     if(listenerInstalled)return;
     listenerInstalled=true;
+    Context app=context.getApplicationContext();
     VpnStatus.addStateListener(new VpnStatus.StateListener(){
       @Override public void updateState(String state,String message,int resourceId,ConnectionStatus level,Intent intent){
         active=level==ConnectionStatus.LEVEL_CONNECTED;
         VpnTunnel.state=level==null?"DESCONOCIDO":level.name();
+        CrashDiagnostics.state(app,VpnTunnel.state);
         if(level==ConnectionStatus.LEVEL_CONNECTED||level==ConnectionStatus.LEVEL_AUTH_FAILED||
-            level==ConnectionStatus.LEVEL_NOTCONNECTED)CrashDiagnostics.finished(context);
+            level==ConnectionStatus.LEVEL_NOTCONNECTED)CrashDiagnostics.finished(app);
       }
       @Override public void setConnectedVPN(String uuid){}
     });

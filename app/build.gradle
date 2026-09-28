@@ -1,7 +1,7 @@
 plugins { id 'com.android.application' }
 android { namespace 'com.snaptvnow.tv'; compileSdk 36
  defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 31; versionName '1.0.2'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
- buildTypes { debug { applicationIdSuffix '.vpntrial'; versionNameSuffix '-vpn-test'; manifestPlaceholders.appLabel = 'SNAPTVNOW VPN Prueba' } }
+ buildTypes { debug { applicationIdSuffix '.vpntrial2'; versionNameSuffix '-vpn-test-2'; manifestPlaceholders.appLabel = 'SNAPTVNOW VPN Prueba 2' } }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
