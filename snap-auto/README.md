@@ -41,6 +41,12 @@ La APK debug es para pruebas. Para distribuirla a clientes se necesita firma de 
 
 Código: Java, Android SDK, SQLite y AlarmManager; sin librerías externas de ejecución.
 
+## Cambios de la versión 1.8
+
+- Al volver de la pantalla del permiso de alarmas puntuales, verifica el estado real, confirma el resultado y actualiza la lista. Reprograma las tareas futuras con alarma exacta al concederse.
+- El botón de envío SMS solicita solo ese permiso y explica si Android lo concede o lo rechaza. Ajustes muestra el estado de ambos permisos.
+- «Añadir desde contactos» solicita acceso a la agenda real del teléfono, muestra nombre y número con selección múltiple y búsqueda. Solo se guardan los contactos elegidos.
+
 ## Cambios de la versión 1.7
 
 - La lista de contactos se reconstruye desde las tareas restauradas con números válidos, respetando los contactos editados existentes.

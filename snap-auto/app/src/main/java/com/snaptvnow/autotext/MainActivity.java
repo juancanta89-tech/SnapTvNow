@@ -10,6 +10,7 @@ import android.app.AlarmManager;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -18,6 +19,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.provider.ContactsContract;
 import android.text.InputType;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -39,16 +41,28 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final int TEAL=Color.rgb(0,159,169), DARK=Color.rgb(8,36,46), PALE=Color.rgb(232,249,249);
-    private static final int IMPORT=100, EXPORT=101, RESTORE=102, SQLITE_EXPORT=103, SQLITE_RESTORE=104;
+    private static final int IMPORT=100, EXPORT=101, RESTORE=102, SQLITE_EXPORT=103, SQLITE_RESTORE=104, ASK_SMS=71, ASK_RECEIVE_SMS=72, ASK_NOTICES=73, ASK_CONTACTS=74;
     private LinearLayout root, content, cards; private FrameLayout screen; private Store db; private String filter=Store.PENDING, taskFilter="Todas", search="";private int visibleLimit=40;
+    private boolean awaitingExactPermission=false, lastExactGranted, lastSmsGranted, permissionsInitialized=false;
+    private EditText pendingContactSelection;
     @Override public void onCreate(Bundle b){super.onCreate(b);db=new Store(this);List<Store.Task> activated=db.activateImportedFutureOnce();activated.addAll(db.repairImportedRecipients());db.rebuildContactsFromTasks();for(Store.Task t:activated)Scheduler.schedule(this,t);home();if(!activated.isEmpty())requestNeededPermissions();long id=getIntent().getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);long id=i.getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
+    @Override protected void onResume(){super.onResume();if(db==null)return;
+        boolean exact=exactAlarmsAllowed(),sms=checkSelfPermission(Manifest.permission.SEND_SMS)==PackageManager.PERMISSION_GRANTED;
+        if(!permissionsInitialized){permissionsInitialized=true;lastExactGranted=exact;lastSmsGranted=sms;return;}
+        boolean changed=exact!=lastExactGranted||sms!=lastSmsGranted;lastExactGranted=exact;lastSmsGranted=sms;
+        if(changed){if(exact)for(Store.Task task:db.tasks())if(Store.PENDING.equals(task.status))Scheduler.schedule(this,task);home();}
+        if(awaitingExactPermission){awaitingExactPermission=false;alert(exact?"Alarmas puntuales activadas. Las tareas pendientes se reprogramaron.":"Android aún no permitió las alarmas puntuales. Activa el interruptor para SNAP Auto en esa pantalla y vuelve.");}
+    }
+    private boolean exactAlarmsAllowed(){return Build.VERSION.SDK_INT<31||((AlarmManager)getSystemService(ALARM_SERVICE)).canScheduleExactAlarms();}
+    private void requestExactAlarms(){if(exactAlarmsAllowed()){alert("Alarmas puntuales: activadas.");return;}awaitingExactPermission=true;try{startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+getPackageName())));}catch(Exception ex){awaitingExactPermission=false;alert("No se pudo abrir el permiso. Ve a Ajustes del teléfono → Apps → SNAP Auto → Alarmas y recordatorios.");}}
     private int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
     private TextView text(String s,int size,int color){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setPadding(dp(10),dp(8),dp(10),dp(8));return v;}
@@ -65,8 +79,9 @@ public final class MainActivity extends Activity {
         LinearLayout tabs=new LinearLayout(this);tabs.setBackgroundColor(Color.rgb(40,58,62));for(String status:new String[]{Store.PENDING,Store.DONE,Store.FAILED}){
             String label=Store.DONE.equals(status)?"Hechas":Store.FAILED.equals(status)?"Fallidas":"Pendientes";
             TextView tab=text(label+"  "+counts.getOrDefault(status,0),15,status.equals(filter)?Color.WHITE:Color.LTGRAY);tab.setGravity(Gravity.CENTER);tab.setTypeface(null,status.equals(filter)?Typeface.BOLD:Typeface.NORMAL);tab.setOnClickListener(v->{filter=status;visibleLimit=40;home();});tabs.addView(tab,new LinearLayout.LayoutParams(0,dp(58),1));}
-        content.addView(tabs);if(counts.getOrDefault(Store.PENDING,0)>0&&Build.VERSION.SDK_INT>=31&&!((AlarmManager)getSystemService(ALARM_SERVICE)).canScheduleExactAlarms())content.addView(button("⚠ Permitir alarmas puntuales",()->startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+getPackageName())))));
-        if(counts.getOrDefault(Store.PENDING,0)>0&&checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED)content.addView(button("⚠ Permitir envío de SMS",this::requestNeededPermissions));
+        content.addView(tabs);if(counts.getOrDefault(Store.PENDING,0)>0&&!exactAlarmsAllowed())content.addView(button("⚠ Permitir alarmas puntuales",this::requestExactAlarms));
+        boolean pendingSms=false;for(Store.Task t:all)if(Store.PENDING.equals(t.status)&&"SMS".equals(t.channel)&&"Programar".equals(t.type)){pendingSms=true;break;}
+        if(pendingSms&&checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED)content.addView(button("⚠ Permitir envío de SMS",this::requestSmsPermission));
         LinearLayout others=new LinearLayout(this);for(String status:new String[]{Store.PAUSED,"Acción necesaria"}){
             Button b=button(status+" ("+counts.getOrDefault(status,0)+")",()->{filter=status;visibleLimit=40;home();});b.setTextSize(12);others.addView(b,new LinearLayout.LayoutParams(0,dp(50),1));}content.addView(others);
         cards=column();content.addView(cards);renderTaskCards();
@@ -145,7 +160,7 @@ public final class MainActivity extends Activity {
         String message="Enviar ahora a "+(t.name.isEmpty()?t.recipient:t.name+" ("+t.recipient+")")+"? "+("SMS".equals(t.channel)?"Puede generar cargos por SMS.":"Se abrirá WhatsApp y deberás pulsar Enviar.")+" La programación original conservará su fecha.";
         new AlertDialog.Builder(this).setTitle("Enviar ahora").setMessage(message).setNegativeButton("Cancelar",null).setPositiveButton("Continuar",(d,w)->{
             if("WhatsApp".equals(t.channel))openWhatsAppNow(t);
-            else if("SMS".equals(t.channel)){if(checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){requestNeededPermissions();alert("Concede el permiso SMS y vuelve a pulsar Enviar ahora.");return;}Messaging.send(this,t,t.recipient,Messaging.render(t.body,t.name),false);alert("Se solicitó el envío. Consulta el resultado en Historial SMS.");}
+            else if("SMS".equals(t.channel)){if(checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){requestSmsPermission();alert("Concede el permiso SMS y vuelve a pulsar Enviar ahora.");return;}Messaging.send(this,t,t.recipient,Messaging.render(t.body,t.name),false);alert("Se solicitó el envío. Consulta el resultado en Historial SMS.");}
             else alert("Este canal todavía no está disponible.");
         }).show();
     }
@@ -202,7 +217,25 @@ public final class MainActivity extends Activity {
         }));content.addView(button("Cancelar",this::home));nav();}
     private String findName(String phone){for(String[] c:db.contacts())if(c[1].equals(phone))return c[0];return "";}
     private void chooseContacts(EditText dest){
-        db.rebuildContactsFromTasks();List<String[]> all=db.contacts();
+        if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){pendingContactSelection=dest;requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},ASK_CONTACTS);return;}
+        showContactsDialog(dest,loadSelectableContacts());
+    }
+    private String normalizePhone(String raw){if(raw==null)return "";String digits=raw.replaceAll("[^0-9]","");return raw.trim().startsWith("+")?"+"+digits:digits;}
+    private List<String[]> loadSelectableContacts(){
+        db.rebuildContactsFromTasks();LinkedHashMap<String,String[]> entries=new LinkedHashMap<>();
+        for(String[] person:db.contacts())if(Messaging.valid(person[1]))entries.put(person[1],person);
+        if(checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED){
+            String[] columns={ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER};
+            try(Cursor c=getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,columns,null,null,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" ASC")){
+                if(c!=null){int count=0;while(c.moveToNext()&&count++<10000){String phone=normalizePhone(c.getString(1));if(!Messaging.valid(phone))continue;
+                    String name=c.getString(0);if(name==null||name.trim().isEmpty())name=phone;
+                    String[] old=entries.get(phone);if(old==null||old[0].equals(phone))entries.put(phone,new String[]{name,phone});
+                }}
+            }catch(SecurityException denied){alert("Android no permitió leer la agenda. Revisa el permiso Contactos.");}
+        }
+        List<String[]> result=new ArrayList<>(entries.values());result.sort((a,b)->a[0].compareToIgnoreCase(b[0]));return result;
+    }
+    private void showContactsDialog(EditText dest,List<String[]> all){
         if(all.isEmpty()){alert("No hay números guardados en las tareas ni contactos importados. Añade uno desde Contactos o importa un CSV.");return;}
         boolean[] checked=new boolean[all.size()];List<Integer> visible=new ArrayList<>();
         LinearLayout panel=column();panel.setPadding(dp(12),0,dp(12),0);
@@ -219,7 +252,7 @@ public final class MainActivity extends Activity {
         refresh.run();
         new AlertDialog.Builder(this).setTitle("Seleccionar contactos ("+all.size()+")").setView(panel).setNegativeButton("Cancelar",null).setPositiveButton("Añadir",(d,w)->{
             StringBuilder b=new StringBuilder(dest.getText().toString().trim());Set<String> existing=new HashSet<>();for(String phone:b.toString().split("[,;\\n]"))existing.add(phone.trim());
-            for(int n=0;n<all.size();n++)if(checked[n]&&existing.add(all.get(n)[1])){if(b.length()>0)b.append(", ");b.append(all.get(n)[1]);}
+            for(int n=0;n<all.size();n++)if(checked[n]&&existing.add(all.get(n)[1])){if(b.length()>0)b.append(", ");b.append(all.get(n)[1]);db.addContact(all.get(n)[0],all.get(n)[1]);}
             dest.setText(b.toString());
         }).show();
     }
@@ -227,11 +260,27 @@ public final class MainActivity extends Activity {
     private void chooseTemplate(EditText dest){List<String[]> all=db.templates();if(all.isEmpty()){alert("Crea una plantilla primero.");return;}String[] names=new String[all.size()];for(int n=0;n<all.size();n++)names[n]=all.get(n)[0];new AlertDialog.Builder(this).setTitle("Plantillas").setItems(names,(d,n)->dest.setText(all.get(n)[1])).show();}
     private void alert(String msg){new AlertDialog.Builder(this).setMessage(msg).setPositiveButton("Entendido",null).show();}
     private void openWhatsApp(Store.Task t){if(t==null||!"WhatsApp".equals(t.channel))return;String number=t.recipient.replace("+","");Uri uri=Uri.parse("https://wa.me/"+number+"?text="+Uri.encode(Messaging.render(t.body,t.name)));Intent view=new Intent(Intent.ACTION_VIEW,uri);try{startActivity(view);new AlertDialog.Builder(this).setMessage("Confirma el envío dentro de WhatsApp. ¿Marcaste el mensaje como enviado?").setNegativeButton("Todavía no",null).setPositiveButton("Sí, enviado",(d,w)->{t.status=Store.DONE;db.save(t);db.log(t.id,t.recipient,Store.DONE,"Confirmado manualmente por el usuario");long next=Scheduler.next(t.at,t.repeat);if(next>0){t.at=next;t.status=Store.PENDING;db.save(t);Scheduler.schedule(this,t);}home();}).show();}catch(Exception ex){alert("No se pudo abrir WhatsApp en este dispositivo.");}}
-    private void requestNeededPermissions(){List<String> p=new ArrayList<>();if(checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED)p.add(Manifest.permission.SEND_SMS);if(checkSelfPermission(Manifest.permission.RECEIVE_SMS)!=PackageManager.PERMISSION_GRANTED)p.add(Manifest.permission.RECEIVE_SMS);if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)p.add(Manifest.permission.POST_NOTIFICATIONS);if(!p.isEmpty())requestPermissions(p.toArray(new String[0]),7);}
+    private void requestSmsPermission(){if(checkSelfPermission(Manifest.permission.SEND_SMS)==PackageManager.PERMISSION_GRANTED){alert("Permiso para enviar SMS: activado.");home();return;}requestPermissions(new String[]{Manifest.permission.SEND_SMS},ASK_SMS);}
+    private void requestNeededPermissions(){
+        if(checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){requestSmsPermission();return;}
+        if(checkSelfPermission(Manifest.permission.RECEIVE_SMS)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECEIVE_SMS},ASK_RECEIVE_SMS);return;}
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},ASK_NOTICES);return;}
+        alert("Permisos SMS y notificaciones: activados.");
+    }
+    private void openAppPermissionSettings(){startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())));}
+    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);
+        boolean allowed=results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED;
+        if(code==ASK_CONTACTS){EditText field=pendingContactSelection;pendingContactSelection=null;
+            if(allowed&&field!=null)chooseContacts(field);
+            else if(!allowed)new AlertDialog.Builder(this).setMessage("Para mostrar la agenda del teléfono, concede acceso a Contactos para SNAP Auto.").setNegativeButton("Ahora no",null).setNeutralButton("Usar guardados",(d,w)->{if(field!=null)showContactsDialog(field,db.contacts());}).setPositiveButton("Abrir ajustes",(d,w)->openAppPermissionSettings()).show();return;}
+        if(code==ASK_SMS){lastSmsGranted=allowed;home();if(allowed)alert("Permiso para enviar SMS: activado. Ya no debe aparecer la alerta.");
+            else new AlertDialog.Builder(this).setMessage("Android no concedió el permiso de envío SMS. Revísalo en los permisos de SNAP Auto. No se enviarán SMS programados hasta que esté activo.").setNegativeButton("Ahora no",null).setPositiveButton("Abrir ajustes",(d,w)->openAppPermissionSettings()).show();return;}
+        if(code==ASK_RECEIVE_SMS||code==ASK_NOTICES)alert(allowed?"Permiso activado.":"Permiso rechazado. Puedes activarlo en Ajustes del teléfono → Apps → SNAP Auto → Permisos.");
+    }
     private void contacts(){page("Contactos");content.addView(button("Importar CSV",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("text/*").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,IMPORT);}));content.addView(text("CSV con columnas name,phone o nombre,telefono. Exporta Excel como CSV UTF-8.",14,Color.DKGRAY));content.addView(button("Añadir contacto",()->{LinearLayout box=column();EditText name=field(box,"Nombre","",false),phone=field(box,"Teléfono con prefijo de país","",false);new AlertDialog.Builder(this).setTitle("Contacto").setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Guardar",(d,w)->{if(Messaging.valid(phone.getText().toString().trim()))db.addContact(name.getText().toString().trim(),phone.getText().toString().trim());contacts();}).show();}));for(String[] c:db.contacts())card(c[0],c[1],null);nav();}
     private void templates(){page("Plantillas");content.addView(button("+ Nueva plantilla",()->{LinearLayout box=column();EditText title=field(box,"Título","",false),body=field(box,"Mensaje con {NOMBRE}","",true);new AlertDialog.Builder(this).setTitle("Nueva plantilla").setView(box).setNegativeButton("Cancelar",null).setPositiveButton("Guardar",(d,w)->{if(!title.getText().toString().trim().isEmpty()&&!body.getText().toString().trim().isEmpty())db.addTemplate(title.getText().toString().trim(),body.getText().toString().trim());templates();}).show();}));for(String[] t:db.templates())card(t[0],t[1],null);nav();}
     private void history(){page("Historial de SMS");content.addView(text("«Enviado» indica que la red móvil aceptó el SMS; no confirma lectura ni entrega.",14,Color.DKGRAY));for(String[] h:db.history())card(h[1]+" · "+h[0],DateFormat.getDateTimeInstance().format(Long.parseLong(h[3]))+"\n"+h[2],null);content.addView(button("Volver",this::home));nav();}
-    private void settings(){page("Ajustes y permisos");content.addView(button("Solicitar permisos SMS y notificaciones",this::requestNeededPermissions));content.addView(button("Permitir alarmas exactas",()->{if(Build.VERSION.SDK_INT>=31){AlarmManager a=(AlarmManager)getSystemService(ALARM_SERVICE);if(!a.canScheduleExactAlarms())startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+getPackageName())));else alert("Alarmas exactas ya están permitidas.");}}));content.addView(button("Crear backup .sqlite3",()->{String name="snap_auto_backup_"+new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new java.util.Date())+".sqlite3";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/x-sqlite3").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,name);startActivityForResult(i,SQLITE_EXPORT);}));content.addView(button("Restaurar o importar .sqlite3",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,SQLITE_RESTORE);}));content.addView(button("Exportar copia JSON",()->{Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"snap-auto-backup.json");startActivityForResult(i,EXPORT);}));content.addView(button("Restaurar copia JSON",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,RESTORE);}));if(db.legacyCount()>0)content.addView(button("Ver respuestas de Auto Text archivadas",this::legacyArchive));card("Privacidad","Los contactos y tareas se guardan en el teléfono. La exportación manual crea un archivo que tú eliges.",null);card("WhatsApp","El aviso abre un chat con el texto listo. Debes pulsar Enviar. No hay acceso a mensajes entrantes de WhatsApp.",null);nav();}
+    private void settings(){page("Ajustes y permisos");card("Estado de permisos","Alarmas puntuales: "+(exactAlarmsAllowed()?"ACTIVADAS":"PENDIENTES")+"\nEnviar SMS: "+(checkSelfPermission(Manifest.permission.SEND_SMS)==PackageManager.PERMISSION_GRANTED?"ACTIVADO":"PENDIENTE"),null);content.addView(button("Solicitar permiso de envío SMS",this::requestSmsPermission));content.addView(button("Otros permisos: recibir SMS y notificaciones",this::requestNeededPermissions));content.addView(button("Permitir alarmas exactas",this::requestExactAlarms));content.addView(button("Crear backup .sqlite3",()->{String name="snap_auto_backup_"+new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new java.util.Date())+".sqlite3";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/x-sqlite3").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,name);startActivityForResult(i,SQLITE_EXPORT);}));content.addView(button("Restaurar o importar .sqlite3",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,SQLITE_RESTORE);}));content.addView(button("Exportar copia JSON",()->{Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"snap-auto-backup.json");startActivityForResult(i,EXPORT);}));content.addView(button("Restaurar copia JSON",()->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,RESTORE);}));if(db.legacyCount()>0)content.addView(button("Ver respuestas de Auto Text archivadas",this::legacyArchive));card("Privacidad","Los contactos y tareas se guardan en el teléfono. La exportación manual crea un archivo que tú eliges.",null);card("WhatsApp","El aviso abre un chat con el texto listo. Debes pulsar Enviar. No hay acceso a mensajes entrantes de WhatsApp.",null);nav();}
     private void legacyArchive(){page("Archivo de Auto Text");card("Registros conservados","Se guardaron "+db.legacyCount()+" tareas originales con todos sus campos en el backup SQLite de SNAP Auto. Estas respuestas no pueden ejecutarse automáticamente.",null);for(String[] row:db.unsupportedAutoText())card(row[0].isEmpty()?row[1]:row[0],"Estado: "+row[4]+" · "+row[1]+"\n"+row[2],()->alert("Palabras clave originales:\n"+row[3]));content.addView(button("Volver",this::settings));nav();}
     @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;try{if(code==IMPORT)importCsv(data.getData());else if(code==EXPORT)exportJson(data.getData());else if(code==RESTORE)restoreJson(data.getData());else if(code==SQLITE_EXPORT)exportSqlite(data.getData());else if(code==SQLITE_RESTORE)restoreSqlite(data.getData());}catch(Exception e){alert("No se pudo procesar el archivo: "+e.getMessage());}}
     private void exportSqlite(Uri uri)throws Exception {File snapshot=db.snapshot();try(InputStream in=new FileInputStream(snapshot);OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IllegalArgumentException("No se pudo abrir el destino");Store.copy(in,out);alert("Backup SQLite guardado. Consérvalo en un lugar seguro.");}finally{snapshot.delete();}}
