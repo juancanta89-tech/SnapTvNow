@@ -157,10 +157,15 @@ public final class MainActivity extends Activity {
     }
     private void runNow(Store.Task t){
         if(!Messaging.valid(t.recipient)||t.body.trim().isEmpty()){alert("Corrige primero el número y mensaje de esta tarea.");return;}
-        String message="Enviar ahora a "+(t.name.isEmpty()?t.recipient:t.name+" ("+t.recipient+")")+"? "+("SMS".equals(t.channel)?"Puede generar cargos por SMS.":"Se abrirá WhatsApp y deberás pulsar Enviar.")+" La programación original conservará su fecha.";
+        boolean consumesOccurrence="SMS".equals(t.channel)&&"Programar".equals(t.type)&&Store.PENDING.equals(t.status);
+        String message="Enviar ahora a "+(t.name.isEmpty()?t.recipient:t.name+" ("+t.recipient+")")+"? "+("SMS".equals(t.channel)?"Puede generar cargos por SMS.":"Se abrirá WhatsApp y deberás pulsar Enviar.")+(consumesOccurrence?" Esta ocasión reemplazará el envío programado.":" La programación original conservará su fecha.");
         new AlertDialog.Builder(this).setTitle("Enviar ahora").setMessage(message).setNegativeButton("Cancelar",null).setPositiveButton("Continuar",(d,w)->{
             if("WhatsApp".equals(t.channel))openWhatsAppNow(t);
-            else if("SMS".equals(t.channel)){if(checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){requestSmsPermission();alert("Concede el permiso SMS y vuelve a pulsar Enviar ahora.");return;}Messaging.send(this,t,t.recipient,Messaging.render(t.body,t.name),false);alert("Se solicitó el envío. Consulta el resultado en Historial SMS.");}
+            else if("SMS".equals(t.channel)){if(checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){requestSmsPermission();alert("Concede el permiso SMS y vuelve a pulsar Enviar ahora.");return;}
+                boolean pending="Programar".equals(t.type)&&Store.PENDING.equals(t.status);
+                if(pending){Scheduler.cancel(this,t.id);if(!db.claimScheduledSms(t.id,t.at)){alert("Esta tarea ya se envió o está en proceso. Revisa Historial SMS.");return;}}
+                Messaging.send(this,t,t.recipient,Messaging.render(t.body,t.name),pending);
+                alert(pending?"Se solicitó el envío ahora. Esta ocasión no volverá a enviarse a la hora programada; consulta Historial SMS.":"Se solicitó el envío. Consulta el resultado en Historial SMS.");}
             else alert("Este canal todavía no está disponible.");
         }).show();
     }
