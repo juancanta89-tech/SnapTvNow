@@ -41,6 +41,12 @@ La APK debug es para pruebas. Para distribuirla a clientes se necesita firma de 
 
 Código: Java, Android SDK, SQLite y AlarmManager; sin librerías externas de ejecución.
 
+## Cambios de la versión 1.5
+
+- Menú de tres puntos: enviar ahora con confirmación, editar, duplicar, fijar o desfijar, pausar o reactivar, marcar completada sin enviar y eliminar.
+- Filtros por hoy, mañana, semana, mes, tareas repetidas, recordatorios, SMS y WhatsApp, además de búsqueda por nombre, número o texto. Telegram y Messenger aparecen como canales aún no disponibles.
+- Las tareas fijadas conservan su posición en las listas y en el backup SQLite. El envío inmediato no altera la fecha programada original.
+
 ## Cambios de la versión 1.4
 
 - Cada tarea programada muestra el nombre y el número de su destinatario.

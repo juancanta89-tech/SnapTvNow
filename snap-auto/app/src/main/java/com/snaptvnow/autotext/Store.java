@@ -17,9 +17,9 @@ final class Store extends SQLiteOpenHelper {
     private final Context app;
     private static final String FORMAT="snap-auto-sqlite-v1";
     static final String PENDING="Pendiente", DONE="Enviado", FAILED="Fallido", PAUSED="Pausado";
-    Store(Context c) { super(c,"snap_auto.db",null,4); app=c.getApplicationContext(); }
+    Store(Context c) { super(c,"snap_auto.db",null,5); app=c.getApplicationContext(); }
     @Override public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE tasks (_id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, channel TEXT NOT NULL, recipient TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', body TEXT NOT NULL, at_ms INTEGER NOT NULL DEFAULT 0, repeat_rule TEXT NOT NULL DEFAULT 'Nunca', status TEXT NOT NULL DEFAULT 'Pendiente', keyword TEXT NOT NULL DEFAULT '', window_start TEXT NOT NULL DEFAULT '', window_end TEXT NOT NULL DEFAULT '', cooldown INTEGER NOT NULL DEFAULT 60, last_error TEXT NOT NULL DEFAULT '', source_fingerprint TEXT NOT NULL DEFAULT '', source_id INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE tasks (_id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, channel TEXT NOT NULL, recipient TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', body TEXT NOT NULL, at_ms INTEGER NOT NULL DEFAULT 0, repeat_rule TEXT NOT NULL DEFAULT 'Nunca', status TEXT NOT NULL DEFAULT 'Pendiente', keyword TEXT NOT NULL DEFAULT '', window_start TEXT NOT NULL DEFAULT '', window_end TEXT NOT NULL DEFAULT '', cooldown INTEGER NOT NULL DEFAULT 60, last_error TEXT NOT NULL DEFAULT '', source_fingerprint TEXT NOT NULL DEFAULT '', source_id INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE contacts (_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL UNIQUE)");
         db.execSQL("CREATE TABLE templates (_id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL)");
         db.execSQL("CREATE TABLE history (_id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, phone TEXT NOT NULL, at_ms INTEGER NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '')");
@@ -29,22 +29,22 @@ final class Store extends SQLiteOpenHelper {
     }
     private void marker(SQLiteDatabase db) { db.execSQL("CREATE TABLE IF NOT EXISTS app_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)");db.execSQL("INSERT OR REPLACE INTO app_metadata (name,value) VALUES ('format','"+FORMAT+"')"); }
     private void legacyTables(SQLiteDatabase db) {db.execSQL("CREATE TABLE IF NOT EXISTS legacy_imports (fingerprint TEXT PRIMARY KEY, imported_at INTEGER NOT NULL, source_count INTEGER NOT NULL)");db.execSQL("CREATE TABLE IF NOT EXISTS legacy_rows (_id INTEGER PRIMARY KEY AUTOINCREMENT, fingerprint TEXT NOT NULL, source_table TEXT NOT NULL, source_id INTEGER NOT NULL, payload TEXT NOT NULL)");}
-    @Override public void onUpgrade(SQLiteDatabase db,int old,int now) { if(old<1||old>now)throw new IllegalStateException("Migration required");if(old<2)marker(db);if(old<3)legacyTables(db);if(old<4){db.execSQL("ALTER TABLE tasks ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''");db.execSQL("ALTER TABLE tasks ADD COLUMN source_id INTEGER NOT NULL DEFAULT 0");AutoTextImporter.backfillLinks(db);} }
+    @Override public void onUpgrade(SQLiteDatabase db,int old,int now) { if(old<1||old>now)throw new IllegalStateException("Migration required");if(old<2)marker(db);if(old<3)legacyTables(db);if(old<4){db.execSQL("ALTER TABLE tasks ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''");db.execSQL("ALTER TABLE tasks ADD COLUMN source_id INTEGER NOT NULL DEFAULT 0");AutoTextImporter.backfillLinks(db);}if(old<5)db.execSQL("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"); }
     static class Task {
-        long id, at, sourceId; int cooldown; String type,channel,recipient,name,body,repeat,status,keyword,start,end,error,sourceFingerprint;
+        long id, at, sourceId; int cooldown; boolean pinned; String type,channel,recipient,name,body,repeat,status,keyword,start,end,error,sourceFingerprint;
         static Task from(Cursor c) {
             Task t=new Task(); t.id=c.getLong(c.getColumnIndexOrThrow("_id")); t.at=c.getLong(c.getColumnIndexOrThrow("at_ms"));
             t.cooldown=c.getInt(c.getColumnIndexOrThrow("cooldown"));
-            t.type=get(c,"type"); t.channel=get(c,"channel"); t.recipient=get(c,"recipient"); t.name=get(c,"name"); t.body=get(c,"body"); t.repeat=get(c,"repeat_rule"); t.status=get(c,"status"); t.keyword=get(c,"keyword"); t.start=get(c,"window_start"); t.end=get(c,"window_end"); t.error=get(c,"last_error");t.sourceFingerprint=get(c,"source_fingerprint");t.sourceId=c.getLong(c.getColumnIndexOrThrow("source_id")); return t;
+            t.type=get(c,"type"); t.channel=get(c,"channel"); t.recipient=get(c,"recipient"); t.name=get(c,"name"); t.body=get(c,"body"); t.repeat=get(c,"repeat_rule"); t.status=get(c,"status"); t.keyword=get(c,"keyword"); t.start=get(c,"window_start"); t.end=get(c,"window_end"); t.error=get(c,"last_error");t.sourceFingerprint=get(c,"source_fingerprint");t.sourceId=c.getLong(c.getColumnIndexOrThrow("source_id"));t.pinned=c.getInt(c.getColumnIndexOrThrow("pinned"))!=0; return t;
         }
         static String get(Cursor c,String k) { return c.getString(c.getColumnIndexOrThrow(k)); }
         ContentValues values() {
-            ContentValues v=new ContentValues(); v.put("type",type); v.put("channel",channel); v.put("recipient",recipient); v.put("name",name); v.put("body",body); v.put("at_ms",at); v.put("repeat_rule",repeat); v.put("status",status); v.put("keyword",keyword); v.put("window_start",start); v.put("window_end",end); v.put("cooldown",cooldown); v.put("last_error",error);v.put("source_fingerprint",sourceFingerprint==null?"":sourceFingerprint);v.put("source_id",sourceId); return v;
+            ContentValues v=new ContentValues(); v.put("type",type); v.put("channel",channel); v.put("recipient",recipient); v.put("name",name); v.put("body",body); v.put("at_ms",at); v.put("repeat_rule",repeat); v.put("status",status); v.put("keyword",keyword); v.put("window_start",start); v.put("window_end",end); v.put("cooldown",cooldown); v.put("last_error",error);v.put("source_fingerprint",sourceFingerprint==null?"":sourceFingerprint);v.put("source_id",sourceId);v.put("pinned",pinned?1:0); return v;
         }
     }
     synchronized long save(Task t) { if(t.id==0) return getWritableDatabase().insertOrThrow("tasks",null,t.values()); getWritableDatabase().update("tasks",t.values(),"_id=?",new String[]{""+t.id}); return t.id; }
     synchronized Task get(long id) { try(Cursor c=getReadableDatabase().query("tasks",null,"_id=?",new String[]{""+id},null,null,null)) { return c.moveToFirst()?Task.from(c):null; } }
-    synchronized List<Task> tasks() { List<Task> out=new ArrayList<>(); try(Cursor c=getReadableDatabase().query("tasks",null,null,null,null,null,"CASE status WHEN 'Pendiente' THEN 0 WHEN 'Acción necesaria' THEN 1 WHEN 'Pausado' THEN 2 WHEN 'Enviado' THEN 3 ELSE 4 END, CASE WHEN status='Pendiente' THEN at_ms END ASC, CASE WHEN status!='Pendiente' THEN at_ms END DESC")) { while(c.moveToNext())out.add(Task.from(c)); } return out; }
+    synchronized List<Task> tasks() { List<Task> out=new ArrayList<>(); try(Cursor c=getReadableDatabase().query("tasks",null,null,null,null,null,"pinned DESC, CASE status WHEN 'Pendiente' THEN 0 WHEN 'Acción necesaria' THEN 1 WHEN 'Pausado' THEN 2 WHEN 'Enviado' THEN 3 ELSE 4 END, CASE WHEN status='Pendiente' THEN at_ms END ASC, CASE WHEN status!='Pendiente' THEN at_ms END DESC")) { while(c.moveToNext())out.add(Task.from(c)); } return out; }
     synchronized List<Task> activateImportedFutureOnce() {
         SQLiteDatabase database=getWritableDatabase();
         try(Cursor c=database.rawQuery("SELECT 1 FROM app_metadata WHERE name='legacy_activation_v1'",null)){if(c.moveToFirst())return new ArrayList<>();}
