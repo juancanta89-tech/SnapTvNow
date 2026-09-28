@@ -19,6 +19,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -44,8 +46,8 @@ import java.util.Locale;
 public final class MainActivity extends Activity {
     private static final int TEAL=Color.rgb(0,159,169), DARK=Color.rgb(8,36,46), PALE=Color.rgb(232,249,249);
     private static final int IMPORT=100, EXPORT=101, RESTORE=102, SQLITE_EXPORT=103, SQLITE_RESTORE=104;
-    private LinearLayout root, content; private FrameLayout screen; private Store db; private String filter=Store.PENDING, taskFilter="Todas", search="";private int visibleLimit=40;
-    @Override public void onCreate(Bundle b){super.onCreate(b);db=new Store(this);List<Store.Task> activated=db.activateImportedFutureOnce();activated.addAll(db.repairImportedRecipients());for(Store.Task t:activated)Scheduler.schedule(this,t);home();if(!activated.isEmpty())requestNeededPermissions();long id=getIntent().getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
+    private LinearLayout root, content, cards; private FrameLayout screen; private Store db; private String filter=Store.PENDING, taskFilter="Todas", search="";private int visibleLimit=40;
+    @Override public void onCreate(Bundle b){super.onCreate(b);db=new Store(this);List<Store.Task> activated=db.activateImportedFutureOnce();activated.addAll(db.repairImportedRecipients());db.rebuildContactsFromTasks();for(Store.Task t:activated)Scheduler.schedule(this,t);home();if(!activated.isEmpty())requestNeededPermissions();long id=getIntent().getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);long id=i.getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
     private int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
@@ -58,9 +60,8 @@ public final class MainActivity extends Activity {
     private void home(){page("SNAP Auto  ·  Todas las tareas");content.setBackgroundColor(Color.rgb(19,25,27));
         java.util.List<Store.Task> all=db.tasks();java.util.Map<String,Integer> counts=new java.util.HashMap<>();for(Store.Task t:all)counts.put(t.status,counts.getOrDefault(t.status,0)+1);
         LinearLayout tools=new LinearLayout(this);tools.setGravity(Gravity.END);content.addView(tools);
-        Button find=button("⌕ Buscar",this::showSearch);tools.addView(find,new LinearLayout.LayoutParams(0,dp(48),1));
+        EditText find=new EditText(this);find.setSingleLine(true);find.setTextColor(Color.WHITE);find.setHintTextColor(Color.LTGRAY);find.setHint("⌕ Buscar por letras o número");find.setTextSize(14);find.setText(search);tools.addView(find,new LinearLayout.LayoutParams(0,dp(48),1));
         Button select=button("▽ Filtro: "+taskFilter, this::showFilters);tools.addView(select,new LinearLayout.LayoutParams(0,dp(48),1));
-        if(!search.isEmpty())content.addView(button("Búsqueda: "+search+"  ✕",()->{search="";home();}));
         LinearLayout tabs=new LinearLayout(this);tabs.setBackgroundColor(Color.rgb(40,58,62));for(String status:new String[]{Store.PENDING,Store.DONE,Store.FAILED}){
             String label=Store.DONE.equals(status)?"Hechas":Store.FAILED.equals(status)?"Fallidas":"Pendientes";
             TextView tab=text(label+"  "+counts.getOrDefault(status,0),15,status.equals(filter)?Color.WHITE:Color.LTGRAY);tab.setGravity(Gravity.CENTER);tab.setTypeface(null,status.equals(filter)?Typeface.BOLD:Typeface.NORMAL);tab.setOnClickListener(v->{filter=status;visibleLimit=40;home();});tabs.addView(tab,new LinearLayout.LayoutParams(0,dp(58),1));}
@@ -68,12 +69,14 @@ public final class MainActivity extends Activity {
         if(counts.getOrDefault(Store.PENDING,0)>0&&checkSelfPermission(Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED)content.addView(button("⚠ Permitir envío de SMS",this::requestNeededPermissions));
         LinearLayout others=new LinearLayout(this);for(String status:new String[]{Store.PAUSED,"Acción necesaria"}){
             Button b=button(status+" ("+counts.getOrDefault(status,0)+")",()->{filter=status;visibleLimit=40;home();});b.setTextSize(12);others.addView(b,new LinearLayout.LayoutParams(0,dp(50),1));}content.addView(others);
-        int shown=0;for(Store.Task t:all){if(!filter.equals(t.status)||!matchesFilter(t))continue;shown++;if(shown<=visibleLimit)taskCard(t);}
-        if(shown==0){TextView empty=text("No hay tareas en esta lista.",16,Color.WHITE);content.addView(empty);}
-        if(shown>visibleLimit)content.addView(button("Mostrar más ("+(shown-visibleLimit)+" restantes)",()->{visibleLimit+=40;home();}));
+        cards=column();content.addView(cards);renderTaskCards();
+        find.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){search=s.toString().trim();visibleLimit=40;renderTaskCards();}public void afterTextChanged(Editable e){}});
         content.addView(button("Historial SMS",this::history));
         TextView add=text("+",36,Color.BLACK);add.setGravity(Gravity.CENTER);add.setPadding(0,0,0,0);add.setBackground(round(Color.rgb(244,247,190),100));add.setElevation(dp(8));add.setContentDescription("Nueva tarea");add.setOnClickListener(v->chooseType());
         FrameLayout.LayoutParams floating=new FrameLayout.LayoutParams(dp(72),dp(72),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);floating.bottomMargin=dp(20);screen.addView(add,floating);nav();}
+    private void renderTaskCards(){if(cards==null)return;cards.removeAllViews();int shown=0;for(Store.Task t:db.tasks()){if(!filter.equals(t.status)||!matchesFilter(t))continue;shown++;if(shown<=visibleLimit)taskCard(t);}
+        if(shown==0)cards.addView(text("No hay tareas que coincidan.",16,Color.WHITE));
+        if(shown>visibleLimit)cards.addView(button("Mostrar más ("+(shown-visibleLimit)+" restantes)",()->{visibleLimit+=40;renderTaskCards();}));}
     private void showSearch(){EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Nombre, número o texto");input.setText(search);new AlertDialog.Builder(this).setTitle("Buscar tareas").setView(input).setNegativeButton("Cancelar",null).setNeutralButton("Limpiar",(d,w)->{search="";visibleLimit=40;home();}).setPositiveButton("Buscar",(d,w)->{search=input.getText().toString().trim();visibleLimit=40;home();}).show();}
     private void showFilters(){String[] options={"Todas","Hoy","Mañana","Esta semana","Este mes","Repetidas","Recordatorio","SMS","WhatsApp","Telegram","Messenger"};new AlertDialog.Builder(this).setTitle("Filtrar tareas").setItems(options,(d,n)->{taskFilter=options[n];visibleLimit=40;home();if(n>=9)alert("Este canal todavía no está disponible en SNAP Auto; no hay tareas para mostrar.");}).show();}
     private boolean matchesFilter(Store.Task t){
@@ -91,12 +94,14 @@ public final class MainActivity extends Activity {
         Calendar end=(Calendar)start.clone();if("Esta semana".equals(taskFilter))end.add(Calendar.DAY_OF_MONTH,7);else if("Este mes".equals(taskFilter))end.add(Calendar.MONTH,1);else end.add(Calendar.DAY_OF_MONTH,1);
         return t.at>=start.getTimeInMillis()&&t.at<end.getTimeInMillis();
     }
-    private void taskCard(Store.Task t){LinearLayout box=column();box.setPadding(dp(14),dp(12),dp(14),dp(14));box.setBackgroundColor(Color.rgb(43,45,47));LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.topMargin=dp(12);content.addView(box,params);
+    private void taskCard(Store.Task t){LinearLayout box=column();box.setPadding(dp(14),dp(12),dp(14),dp(14));box.setBackgroundColor(Color.rgb(43,45,47));LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.topMargin=dp(12);cards.addView(box,params);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);box.addView(top);
         String date="Programar".equals(t.type)?new SimpleDateFormat("EEE d/M (h:mm a)",new Locale("es","US")).format(new java.util.Date(t.at)):"Al recibir SMS";
         FrameLayout emblem=new FrameLayout(this);top.addView(emblem,new LinearLayout.LayoutParams(dp(60),dp(54)));
         TextView clock=text("◷",28,Color.LTGRAY);clock.setGravity(Gravity.CENTER);clock.setPadding(0,0,0,0);clock.setBackground(round(Color.rgb(61,88,101),100));emblem.addView(clock,new FrameLayout.LayoutParams(dp(46),dp(46),Gravity.TOP|Gravity.LEFT));
-        boolean wa="WhatsApp".equals(t.channel);TextView badge=text(wa?"☎":"TXT",wa?16:9,Color.WHITE);badge.setGravity(Gravity.CENTER);badge.setTypeface(null,Typeface.BOLD);badge.setPadding(0,0,0,0);badge.setBackground(round(wa?Color.rgb(37,178,94):Color.rgb(65,166,217),100));
+        boolean wa="WhatsApp".equals(t.channel);View badge;
+        if(wa){ImageView mark=new ImageView(this);mark.setImageResource(R.drawable.ic_whatsapp_mark);mark.setPadding(dp(4),dp(4),dp(4),dp(4));mark.setBackground(round(Color.rgb(37,178,94),100));mark.setContentDescription("WhatsApp");badge=mark;}
+        else{TextView txt=text("TXT",9,Color.WHITE);txt.setGravity(Gravity.CENTER);txt.setTypeface(null,Typeface.BOLD);txt.setPadding(0,0,0,0);txt.setBackground(round(Color.rgb(65,166,217),100));txt.setContentDescription("SMS");badge=txt;}
         FrameLayout.LayoutParams iconPlace=new FrameLayout.LayoutParams(dp(27),dp(27),Gravity.RIGHT|Gravity.BOTTOM);emblem.addView(badge,iconPlace);
         TextView chip=text(date,15,Color.WHITE);chip.setTypeface(null,Typeface.BOLD);chip.setBackgroundColor(Store.PENDING.equals(t.status)?Color.rgb(0,118,130):Color.rgb(92,98,101));top.addView(chip,new LinearLayout.LayoutParams(0,-2,1));
         TextView menu=text("⋮",25,Color.rgb(231,235,175));menu.setGravity(Gravity.CENTER);top.addView(menu,new LinearLayout.LayoutParams(dp(46),dp(46)));menu.setOnClickListener(v->taskMenu(t));
@@ -196,7 +201,29 @@ public final class MainActivity extends Activity {
             if(unique.size()>5)new AlertDialog.Builder(this).setTitle("Confirmar "+unique.size()+" mensajes").setMessage("Se crearán tareas separadas para "+unique.size()+" números. Los SMS podrían generar cargos.").setNegativeButton("Cancelar",null).setPositiveButton("Confirmar",(d,w)->save.run()).show();else save.run();
         }));content.addView(button("Cancelar",this::home));nav();}
     private String findName(String phone){for(String[] c:db.contacts())if(c[1].equals(phone))return c[0];return "";}
-    private void chooseContacts(EditText dest){List<String[]> all=db.contacts();if(all.isEmpty()){alert("Importa contactos primero.");return;}String[] labels=new String[all.size()];boolean[] checked=new boolean[all.size()];for(int n=0;n<all.size();n++)labels[n]=all.get(n)[0]+" · "+all.get(n)[1];new AlertDialog.Builder(this).setTitle("Seleccionar contactos").setMultiChoiceItems(labels,checked,(d,pos,on)->checked[pos]=on).setNegativeButton("Cancelar",null).setPositiveButton("Añadir",(d,w)->{StringBuilder b=new StringBuilder(dest.getText());for(int n=0;n<all.size();n++)if(checked[n]){if(b.length()>0)b.append(", ");b.append(all.get(n)[1]);}dest.setText(b.toString());}).show();}
+    private void chooseContacts(EditText dest){
+        db.rebuildContactsFromTasks();List<String[]> all=db.contacts();
+        if(all.isEmpty()){alert("No hay números guardados en las tareas ni contactos importados. Añade uno desde Contactos o importa un CSV.");return;}
+        boolean[] checked=new boolean[all.size()];List<Integer> visible=new ArrayList<>();
+        LinearLayout panel=column();panel.setPadding(dp(12),0,dp(12),0);
+        EditText query=new EditText(this);query.setSingleLine(true);query.setHint("Escribe nombre, letras o número");panel.addView(query);
+        ListView list=new ListView(this);list.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE);
+        panel.addView(list,new LinearLayout.LayoutParams(-1,dp(390)));
+        ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_list_item_multiple_choice,new ArrayList<>());list.setAdapter(adapter);
+        Runnable refresh=()->{String q=searchKey(query.getText().toString());visible.clear();adapter.clear();
+            for(int n=0;n<all.size();n++){String[] person=all.get(n);if(searchKey(person[0]+" "+person[1]).contains(q)){visible.add(n);adapter.add(person[0]+" · "+person[1]);}}
+            adapter.notifyDataSetChanged();for(int n=0;n<visible.size();n++)list.setItemChecked(n,checked[visible.get(n)]);
+        };
+        list.setOnItemClickListener((parent,view,pos,id)->checked[visible.get(pos)]=list.isItemChecked(pos));
+        query.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){refresh.run();}public void afterTextChanged(Editable e){}});
+        refresh.run();
+        new AlertDialog.Builder(this).setTitle("Seleccionar contactos ("+all.size()+")").setView(panel).setNegativeButton("Cancelar",null).setPositiveButton("Añadir",(d,w)->{
+            StringBuilder b=new StringBuilder(dest.getText().toString().trim());Set<String> existing=new HashSet<>();for(String phone:b.toString().split("[,;\\n]"))existing.add(phone.trim());
+            for(int n=0;n<all.size();n++)if(checked[n]&&existing.add(all.get(n)[1])){if(b.length()>0)b.append(", ");b.append(all.get(n)[1]);}
+            dest.setText(b.toString());
+        }).show();
+    }
+    private String searchKey(String value){return java.text.Normalizer.normalize(value==null?"":value,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+","").toLowerCase(Locale.ROOT).trim();}
     private void chooseTemplate(EditText dest){List<String[]> all=db.templates();if(all.isEmpty()){alert("Crea una plantilla primero.");return;}String[] names=new String[all.size()];for(int n=0;n<all.size();n++)names[n]=all.get(n)[0];new AlertDialog.Builder(this).setTitle("Plantillas").setItems(names,(d,n)->dest.setText(all.get(n)[1])).show();}
     private void alert(String msg){new AlertDialog.Builder(this).setMessage(msg).setPositiveButton("Entendido",null).show();}
     private void openWhatsApp(Store.Task t){if(t==null||!"WhatsApp".equals(t.channel))return;String number=t.recipient.replace("+","");Uri uri=Uri.parse("https://wa.me/"+number+"?text="+Uri.encode(Messaging.render(t.body,t.name)));Intent view=new Intent(Intent.ACTION_VIEW,uri);try{startActivity(view);new AlertDialog.Builder(this).setMessage("Confirma el envío dentro de WhatsApp. ¿Marcaste el mensaje como enviado?").setNegativeButton("Todavía no",null).setPositiveButton("Sí, enviado",(d,w)->{t.status=Store.DONE;db.save(t);db.log(t.id,t.recipient,Store.DONE,"Confirmado manualmente por el usuario");long next=Scheduler.next(t.at,t.repeat);if(next>0){t.at=next;t.status=Store.PENDING;db.save(t);Scheduler.schedule(this,t);}home();}).show();}catch(Exception ex){alert("No se pudo abrir WhatsApp en este dispositivo.");}}

@@ -122,6 +122,22 @@ final class Store extends SQLiteOpenHelper {
     synchronized boolean throttle(long id,String phone,int minutes) { long now=System.currentTimeMillis(); try(Cursor c=getReadableDatabase().query("throttle",new String[]{"at_ms"},"rule_id=? AND phone=?",new String[]{""+id,phone},null,null,null)) { if(c.moveToFirst() && now-c.getLong(0)<minutes*60000L)return false; } ContentValues v=new ContentValues();v.put("rule_id",id);v.put("phone",phone);v.put("at_ms",now);getWritableDatabase().insertWithOnConflict("throttle",null,v,SQLiteDatabase.CONFLICT_REPLACE);return true; }
     synchronized void addContact(String name,String phone) { ContentValues v=new ContentValues();v.put("name",name);v.put("phone",phone);getWritableDatabase().insertWithOnConflict("contacts",null,v,SQLiteDatabase.CONFLICT_REPLACE); }
     synchronized List<String[]> contacts() { List<String[]> l=new ArrayList<>();try(Cursor c=getReadableDatabase().query("contacts",new String[]{"name","phone"},null,null,null,null,"name")){while(c.moveToNext())l.add(new String[]{c.getString(0),c.getString(1)});}return l; }
+    synchronized int rebuildContactsFromTasks() {
+        SQLiteDatabase database=getWritableDatabase();int created=0;
+        database.beginTransaction();
+        try {
+            try(Cursor c=database.query("tasks",new String[]{"name","recipient"},"type='Programar'",null,null,null,"_id DESC")) {
+                while(c.moveToNext()) {
+                    String phone=c.getString(1),name=c.getString(0);
+                    if(!Messaging.valid(phone))continue;
+                    ContentValues v=new ContentValues();v.put("phone",phone);v.put("name",name==null||name.trim().isEmpty()?phone:name.trim());
+                    if(database.insertWithOnConflict("contacts",null,v,SQLiteDatabase.CONFLICT_IGNORE)!=-1)created++;
+                }
+            }
+            database.setTransactionSuccessful();
+        }finally{database.endTransaction();}
+        return created;
+    }
     synchronized void addTemplate(String title,String body) { ContentValues v=new ContentValues();v.put("title",title);v.put("body",body);getWritableDatabase().insert("templates",null,v); }
     synchronized List<String[]> templates() { List<String[]> l=new ArrayList<>();try(Cursor c=getReadableDatabase().query("templates",new String[]{"title","body"},null,null,null,null,"_id DESC")){while(c.moveToNext())l.add(new String[]{c.getString(0),c.getString(1)});}return l; }
     synchronized List<String[]> history() {List<String[]> l=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT h.phone,h.status,h.detail,h.at_ms,t.type FROM history h LEFT JOIN tasks t ON h.task_id=t._id ORDER BY h._id DESC LIMIT 200",null)){while(c.moveToNext())l.add(new String[]{c.getString(0),c.getString(1),c.getString(2),""+c.getLong(3),c.getString(4)});}return l;}

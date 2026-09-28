@@ -41,6 +41,13 @@ La APK debug es para pruebas. Para distribuirla a clientes se necesita firma de 
 
 Código: Java, Android SDK, SQLite y AlarmManager; sin librerías externas de ejecución.
 
+## Cambios de la versión 1.7
+
+- La lista de contactos se reconstruye desde las tareas restauradas con números válidos, respetando los contactos editados existentes.
+- El selector de destinatarios permite escribir letras del nombre o números, sin perder la selección al cambiar el filtro.
+- La búsqueda de tareas filtra la lista mientras se escribe.
+- El distintivo verde de WhatsApp usa un icono de teléfono blanco vectorial; evita el emoji rojo mostrado por algunos dispositivos.
+
 ## Cambios de la versión 1.6
 
 - Iconos diferenciados en cada tarjeta: TXT para SMS y un teléfono blanco en círculo verde para WhatsApp.
