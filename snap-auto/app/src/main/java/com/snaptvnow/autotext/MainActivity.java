@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
+import android.app.Dialog;
 import android.app.TimePickerDialog;
 import android.app.AlarmManager;
 import android.content.ContentValues;
@@ -11,6 +12,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -41,14 +44,15 @@ import java.util.Locale;
 public final class MainActivity extends Activity {
     private static final int TEAL=Color.rgb(0,159,169), DARK=Color.rgb(8,36,46), PALE=Color.rgb(232,249,249);
     private static final int IMPORT=100, EXPORT=101, RESTORE=102, SQLITE_EXPORT=103, SQLITE_RESTORE=104;
-    private LinearLayout root, content; private Store db; private String filter=Store.PENDING, taskFilter="Todas", search="";private int visibleLimit=40;
+    private LinearLayout root, content; private FrameLayout screen; private Store db; private String filter=Store.PENDING, taskFilter="Todas", search="";private int visibleLimit=40;
     @Override public void onCreate(Bundle b){super.onCreate(b);db=new Store(this);List<Store.Task> activated=db.activateImportedFutureOnce();activated.addAll(db.repairImportedRecipients());for(Store.Task t:activated)Scheduler.schedule(this,t);home();if(!activated.isEmpty())requestNeededPermissions();long id=getIntent().getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);long id=i.getLongExtra("open_task",-1);if(id>0)openWhatsApp(db.get(id));}
     private int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
     private TextView text(String s,int size,int color){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setPadding(dp(10),dp(8),dp(10),dp(8));return v;}
     private Button button(String label,Runnable r){Button b=new Button(this);b.setAllCaps(false);b.setText(label);b.setOnClickListener(v->r.run());return b;}
-    private void page(String title){root=column();root.setFitsSystemWindows(true);root.setBackgroundColor(Color.rgb(246,250,251));setContentView(root);TextView bar=text(title,23,Color.WHITE);bar.setTypeface(null,Typeface.BOLD);bar.setBackgroundColor(DARK);bar.setPadding(dp(20),dp(25),dp(12),dp(24));root.addView(bar);ScrollView scroll=new ScrollView(this);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));content=column();content.setPadding(dp(14),dp(12),dp(14),dp(12));scroll.addView(content);}
+    private void page(String title){root=column();root.setFitsSystemWindows(true);root.setBackgroundColor(Color.rgb(246,250,251));setContentView(root);TextView bar=text(title,23,Color.WHITE);bar.setTypeface(null,Typeface.BOLD);bar.setBackgroundColor(DARK);bar.setPadding(dp(20),dp(25),dp(12),dp(24));root.addView(bar);screen=new FrameLayout(this);root.addView(screen,new LinearLayout.LayoutParams(-1,0,1));ScrollView scroll=new ScrollView(this);screen.addView(scroll,new FrameLayout.LayoutParams(-1,-1));content=column();content.setPadding(dp(14),dp(12),dp(14),dp(100));scroll.addView(content);}
+    private GradientDrawable round(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
     private void card(String title,String sub,Runnable action){LinearLayout box=column();box.setBackgroundColor(Color.WHITE);box.setPadding(dp(12),dp(9),dp(12),dp(9));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(10);content.addView(box,p);TextView h=text(title,17,DARK);h.setTypeface(null,Typeface.BOLD);box.addView(h);box.addView(text(sub,14,Color.DKGRAY));if(action!=null)box.setOnClickListener(v->action.run());}
     private void nav(){LinearLayout line=new LinearLayout(this);line.setBackgroundColor(DARK);for(String s:new String[]{"Tareas","Contactos","Plantillas","Ajustes"}){Button b=button(s,()->{switch(s){case "Contactos":contacts();break;case "Plantillas":templates();break;case "Ajustes":settings();break;default:home();}});b.setTextSize(11);line.addView(b,new LinearLayout.LayoutParams(0,dp(58),1));}root.addView(line);}
     private void home(){page("SNAP Auto  ·  Todas las tareas");content.setBackgroundColor(Color.rgb(19,25,27));
@@ -67,7 +71,9 @@ public final class MainActivity extends Activity {
         int shown=0;for(Store.Task t:all){if(!filter.equals(t.status)||!matchesFilter(t))continue;shown++;if(shown<=visibleLimit)taskCard(t);}
         if(shown==0){TextView empty=text("No hay tareas en esta lista.",16,Color.WHITE);content.addView(empty);}
         if(shown>visibleLimit)content.addView(button("Mostrar más ("+(shown-visibleLimit)+" restantes)",()->{visibleLimit+=40;home();}));
-        content.addView(button("+ Nueva tarea",this::chooseType));content.addView(button("Historial SMS",this::history));nav();}
+        content.addView(button("Historial SMS",this::history));
+        TextView add=text("+",36,Color.BLACK);add.setGravity(Gravity.CENTER);add.setPadding(0,0,0,0);add.setBackground(round(Color.rgb(244,247,190),100));add.setElevation(dp(8));add.setContentDescription("Nueva tarea");add.setOnClickListener(v->chooseType());
+        FrameLayout.LayoutParams floating=new FrameLayout.LayoutParams(dp(72),dp(72),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);floating.bottomMargin=dp(20);screen.addView(add,floating);nav();}
     private void showSearch(){EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Nombre, número o texto");input.setText(search);new AlertDialog.Builder(this).setTitle("Buscar tareas").setView(input).setNegativeButton("Cancelar",null).setNeutralButton("Limpiar",(d,w)->{search="";visibleLimit=40;home();}).setPositiveButton("Buscar",(d,w)->{search=input.getText().toString().trim();visibleLimit=40;home();}).show();}
     private void showFilters(){String[] options={"Todas","Hoy","Mañana","Esta semana","Este mes","Repetidas","Recordatorio","SMS","WhatsApp","Telegram","Messenger"};new AlertDialog.Builder(this).setTitle("Filtrar tareas").setItems(options,(d,n)->{taskFilter=options[n];visibleLimit=40;home();if(n>=9)alert("Este canal todavía no está disponible en SNAP Auto; no hay tareas para mostrar.");}).show();}
     private boolean matchesFilter(Store.Task t){
@@ -88,7 +94,11 @@ public final class MainActivity extends Activity {
     private void taskCard(Store.Task t){LinearLayout box=column();box.setPadding(dp(14),dp(12),dp(14),dp(14));box.setBackgroundColor(Color.rgb(43,45,47));LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.topMargin=dp(12);content.addView(box,params);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);box.addView(top);
         String date="Programar".equals(t.type)?new SimpleDateFormat("EEE d/M (h:mm a)",new Locale("es","US")).format(new java.util.Date(t.at)):"Al recibir SMS";
-        TextView chip=text(("WhatsApp".equals(t.channel)?"◉ ":"✉ ")+date,15,Color.WHITE);chip.setTypeface(null,Typeface.BOLD);chip.setBackgroundColor(Store.PENDING.equals(t.status)?Color.rgb(0,118,130):Color.rgb(92,98,101));top.addView(chip,new LinearLayout.LayoutParams(0,-2,1));
+        FrameLayout emblem=new FrameLayout(this);top.addView(emblem,new LinearLayout.LayoutParams(dp(60),dp(54)));
+        TextView clock=text("◷",28,Color.LTGRAY);clock.setGravity(Gravity.CENTER);clock.setPadding(0,0,0,0);clock.setBackground(round(Color.rgb(61,88,101),100));emblem.addView(clock,new FrameLayout.LayoutParams(dp(46),dp(46),Gravity.TOP|Gravity.LEFT));
+        boolean wa="WhatsApp".equals(t.channel);TextView badge=text(wa?"☎":"TXT",wa?16:9,Color.WHITE);badge.setGravity(Gravity.CENTER);badge.setTypeface(null,Typeface.BOLD);badge.setPadding(0,0,0,0);badge.setBackground(round(wa?Color.rgb(37,178,94):Color.rgb(65,166,217),100));
+        FrameLayout.LayoutParams iconPlace=new FrameLayout.LayoutParams(dp(27),dp(27),Gravity.RIGHT|Gravity.BOTTOM);emblem.addView(badge,iconPlace);
+        TextView chip=text(date,15,Color.WHITE);chip.setTypeface(null,Typeface.BOLD);chip.setBackgroundColor(Store.PENDING.equals(t.status)?Color.rgb(0,118,130):Color.rgb(92,98,101));top.addView(chip,new LinearLayout.LayoutParams(0,-2,1));
         TextView menu=text("⋮",25,Color.rgb(231,235,175));menu.setGravity(Gravity.CENTER);top.addView(menu,new LinearLayout.LayoutParams(dp(46),dp(46)));menu.setOnClickListener(v->taskMenu(t));
         TextView who=text((t.pinned?"📌  ":"")+(t.name.isEmpty()?t.recipient:t.name),18,Color.WHITE);who.setTypeface(null,Typeface.BOLD);box.addView(who);
         if("Programar".equals(t.type))box.addView(text("Destinatario: "+(Messaging.valid(t.recipient)?t.recipient:"Número pendiente de corregir"),14,Color.LTGRAY));
@@ -140,7 +150,16 @@ public final class MainActivity extends Activity {
         catch(Exception ex){alert("No se pudo abrir WhatsApp en este dispositivo.");}
     }
     private Store.Task copy(Store.Task t){Store.Task x=new Store.Task();x.id=t.id;x.type=t.type;x.channel=t.channel;x.recipient=t.recipient;x.name=t.name;x.body=t.body;x.at=t.at;x.repeat=t.repeat;x.status=t.status;x.keyword=t.keyword;x.start=t.start;x.end=t.end;x.cooldown=t.cooldown;x.error=t.error;x.pinned=t.pinned;x.sourceFingerprint=t.sourceFingerprint;x.sourceId=t.sourceId;return x;}
-    private void chooseType(){new AlertDialog.Builder(this).setTitle("Selecciona una tarea").setItems(new String[]{"Programar mensaje","Responder SMS","Reenviar SMS"},(d,n)->editNew(new String[]{"Programar","Responder","Reenviar"}[n])).show();}
+    private void chooseType(){
+        Dialog dialog=new Dialog(this);LinearLayout sheet=column();sheet.setPadding(dp(18),dp(20),dp(18),dp(28));sheet.setBackground(round(Color.rgb(38,50,56),22));
+        TextView title=text("Selecciona una tarea",23,Color.WHITE);title.setTypeface(null,Typeface.BOLD);sheet.addView(title);
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER);sheet.addView(row);
+        String[] symbols={"◷","↶","↷"},labels={"Programar","Respuesta automática","Reenvío automático"},types={"Programar","Responder","Reenviar"};
+        for(int n=0;n<3;n++){final int selected=n;LinearLayout item=column();item.setGravity(Gravity.CENTER);item.setPadding(dp(3),dp(18),dp(3),0);
+            TextView icon=text(symbols[n],34,Color.BLACK);icon.setGravity(Gravity.CENTER);icon.setPadding(0,0,0,0);icon.setBackground(round(Color.rgb(173,192,223),100));LinearLayout.LayoutParams circle=new LinearLayout.LayoutParams(dp(62),dp(62));circle.gravity=Gravity.CENTER;item.addView(icon,circle);
+            TextView label=text(labels[n],13,Color.WHITE);label.setGravity(Gravity.CENTER);item.addView(label);row.addView(item,new LinearLayout.LayoutParams(0,dp(132),1));item.setOnClickListener(v->{dialog.dismiss();editNew(types[selected]);});}
+        dialog.setContentView(sheet);dialog.setCancelable(true);android.view.Window window=dialog.getWindow();if(window!=null){window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));window.setGravity(Gravity.BOTTOM);window.setLayout(-1,-2);}dialog.show();window=dialog.getWindow();if(window!=null)window.setLayout(-1,-2);
+    }
     private Spinner spinner(String[] choices){Spinner s=new Spinner(this);ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,choices);s.setAdapter(a);return s;}
     private int index(String[] a,String v){for(int n=0;n<a.length;n++)if(a[n].equals(v))return n;return 0;}
     private EditText field(LinearLayout layout,String label,String value,boolean multi){layout.addView(text(label,14,DARK));EditText e=new EditText(this);e.setSingleLine(!multi);e.setText(value);e.setTextSize(16);if(multi)e.setMinLines(3);layout.addView(e,new LinearLayout.LayoutParams(-1,-2));return e;}

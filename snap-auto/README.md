@@ -41,6 +41,11 @@ La APK debug es para pruebas. Para distribuirla a clientes se necesita firma de 
 
 Código: Java, Android SDK, SQLite y AlarmManager; sin librerías externas de ejecución.
 
+## Cambios de la versión 1.6
+
+- Iconos diferenciados en cada tarjeta: TXT para SMS y un teléfono blanco en círculo verde para WhatsApp.
+- Botón flotante «+» sobre la lista y selector inferior para programar mensajes, respuesta automática SMS y reenvío automático SMS.
+
 ## Cambios de la versión 1.5
 
 - Menú de tres puntos: enviar ahora con confirmación, editar, duplicar, fijar o desfijar, pausar o reactivar, marcar completada sin enviar y eliminar.
