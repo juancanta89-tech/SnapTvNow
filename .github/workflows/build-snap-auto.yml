@@ -14,9 +14,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Install Android SDK
+        run: |
+          SDK_ROOT="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$SDK_ROOT/cmdline-tools"
+          curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$RUNNER_TEMP/android-tools.zip"
+          unzip -q "$RUNNER_TEMP/android-tools.zip" -d "$SDK_ROOT/cmdline-tools"
+          mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
