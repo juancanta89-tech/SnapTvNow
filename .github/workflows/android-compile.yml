@@ -19,6 +19,6 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Install Android platform
-        run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0'
+        run: /usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0'
       - name: Compile app sources (no APK)
         run: gradle :app:compileDebugJavaWithJavac --no-daemon
