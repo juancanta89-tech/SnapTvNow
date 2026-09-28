@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.os.Build;
 import android.content.SharedPreferences;
 import android.content.Intent;
+import android.content.ClipboardManager;
+import android.content.ClipData;
 import android.net.VpnService;
 import android.net.Uri;
 import android.content.res.Configuration;
@@ -93,7 +95,8 @@ public class MainActivity extends Activity {
   private TextView action(String label,Runnable task){TextView v=text(label,15,WHITE,true);v.setGravity(Gravity.CENTER);v.setPadding(d(12),d(7),d(12),d(7));v.setBackground(shape(PANEL,12));v.setFocusable(true);v.setOnClickListener(w->task.run());v.setOnFocusChangeListener((w,focus)->{v.setBackground(focus?gradient(CYAN,0xff10abce,12):shape(PANEL,12));v.setTextColor(focus?NAVY:WHITE);v.setScaleX(focus?1.025f:1f);v.setScaleY(focus?1.025f:1f);});return v;}
   private void title(String s){body.addView(text(s,wide?25:22,WHITE,true));gap(body,12);}
   @Override public void onCreate(Bundle b){
-    super.onCreate(b);prefs=getSharedPreferences("demo",MODE_PRIVATE);VpnTunnel.initialize();
+    super.onCreate(b);CrashDiagnostics.install(this);prefs=getSharedPreferences("demo",MODE_PRIVATE);VpnTunnel.initialize(this);
+    final String previousCrash=CrashDiagnostics.consume(this);
     TextView loading=text("SNAPTVNOW\nConectando…",23,CYAN,true);
     loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(NAVY);setContentView(loading);
     new Thread(()->{
@@ -112,6 +115,12 @@ public class MainActivity extends Activity {
         if(logged)items=new ArrayList<>();
         for(Catalog.Item i:items)if(prefs.getBoolean("fav_"+i.id,false))favorites.add(i.id);
         render();
+        if(previousCrash!=null)new AlertDialog.Builder(this).setTitle("Diagnóstico VPN")
+          .setMessage(previousCrash).setPositiveButton("Copiar",(dialog,which)->{
+            ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico VPN",previousCrash));
+            Toast.makeText(this,"Diagnóstico copiado",Toast.LENGTH_SHORT).show();
+          }).setNegativeButton("Cerrar",null).show();
         UpdateChecker.check(this);
         if(client!=null)checkDirectMessage();
         loadAdvertisement();
@@ -234,10 +243,11 @@ public class MainActivity extends Activity {
   private void startPendingVpn(){
     VpnLocations.Config config=pendingVpn;pendingVpn=null;
     if(config==null)return;
-    try{
-      VpnTunnel.start(this,config);
-      Toast.makeText(this,"Conectando VPN…",Toast.LENGTH_LONG).show();
-    }catch(Exception e){showVpnError(e.getMessage());}
+    Toast.makeText(this,"Conectando VPN…",Toast.LENGTH_LONG).show();
+    new Thread(()->{
+      try{VpnTunnel.start(this,config);}
+      catch(Exception e){CrashDiagnostics.finished(this);showVpnError(e.getMessage());}
+    },"vpn-start").start();
   }
   private void showVpnError(String message){runOnUiThread(()->{
     if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("VPN")

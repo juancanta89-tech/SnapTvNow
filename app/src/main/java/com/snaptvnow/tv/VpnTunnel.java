@@ -20,17 +20,22 @@ import de.blinkt.openvpn.core.ConnectionStatus;
 final class VpnTunnel {
   private static volatile boolean active;
   private static volatile boolean listenerInstalled;
-  static void initialize(){
+  private static volatile String state="SIN CONEXIÓN";
+  static void initialize(Context context){
     if(listenerInstalled)return;
     listenerInstalled=true;
     VpnStatus.addStateListener(new VpnStatus.StateListener(){
       @Override public void updateState(String state,String message,int resourceId,ConnectionStatus level,Intent intent){
         active=level==ConnectionStatus.LEVEL_CONNECTED;
+        VpnTunnel.state=level==null?"DESCONOCIDO":level.name();
+        if(level==ConnectionStatus.LEVEL_CONNECTED||level==ConnectionStatus.LEVEL_AUTH_FAILED||
+            level==ConnectionStatus.LEVEL_NOTCONNECTED)CrashDiagnostics.finished(context);
       }
       @Override public void setConnectedVPN(String uuid){}
     });
   }
   static boolean isConnected(){return active;}
+  static String status(){return state;}
   static boolean needsConsent(Context context){return VpnService.prepare(context)!=null;}
 
   static void start(Context context,VpnLocations.Config config) throws Exception {
@@ -49,6 +54,7 @@ final class VpnTunnel {
     profile.mPersistTun=true;
     profile.mBlockUnusedAddressFamilies=true;
     ProfileManager.setTemporaryProfile(context.getApplicationContext(),profile);
+    CrashDiagnostics.starting(context);
     VPNLaunchHelper.startOpenVpn(profile,context.getApplicationContext(),"SNAPTVNOW",false);
   }
   static boolean disconnect(Context context){
