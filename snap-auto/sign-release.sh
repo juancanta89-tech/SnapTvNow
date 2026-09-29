@@ -12,6 +12,7 @@ output="$2"
 keystore="$3"
 tools_dir="$4"
 [[ -f "$unsigned" && -f "$keystore" && -f "$tools_dir/lib/apksigner.jar" && -x "$tools_dir/zipalign" ]] || { echo "Falta el APK, la clave o Android Build Tools" >&2; exit 2; }
+export LD_LIBRARY_PATH="$tools_dir/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 mkdir -p "$(dirname "$output")"
 aligned="$(mktemp "$(dirname "$output")/.snap-auto-aligned-XXXXXX.apk")"
 trap 'rm -f "$aligned"' EXIT
