@@ -28,10 +28,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - run: gradle :app:assembleDebug --no-daemon
+      - run: gradle :app:assembleDebug :app:assembleRelease --no-daemon
         working-directory: snap-auto
       - uses: actions/upload-artifact@v4
         with:
           name: SNAP-Auto-debug-APK
           path: snap-auto/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SNAP-Auto-release-unsigned
+          path: snap-auto/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-signing-tools
+          path: |
+            ${{ env.ANDROID_HOME }}/build-tools/35.0.0/lib/apksigner.jar
+            ${{ env.ANDROID_HOME }}/build-tools/35.0.0/zipalign
           if-no-files-found: error
