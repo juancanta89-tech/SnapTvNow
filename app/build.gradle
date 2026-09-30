@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+
+def productionSigning = [
+  file: System.getenv('SNAPTVNOW_KEYSTORE_FILE'),
+  storePassword: System.getenv('SNAPTVNOW_STORE_PASSWORD'),
+  alias: System.getenv('SNAPTVNOW_KEY_ALIAS'),
+  keyPassword: System.getenv('SNAPTVNOW_KEY_PASSWORD')
+]
+android { namespace 'com.snaptvnow.tv'; compileSdk 36
+ defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 31; versionName '1.0.2'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
+ signingConfigs {
+  production {
+   storeFile file(productionSigning.file ?: 'production-key-not-configured.jks')
+   storePassword productionSigning.storePassword ?: ''
+   keyAlias productionSigning.alias ?: ''
+   keyPassword productionSigning.keyPassword ?: ''
+  }
+ }
+ buildTypes { release { signingConfig signingConfigs.production }; debug { applicationIdSuffix '.vpntrial3'; versionNameSuffix '-vpn-test-3'; manifestPlaceholders.appLabel = 'SNAPTVNOW VPN Prueba 3' } }
+ packaging { jniLibs { useLegacyPackaging = true } }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+ implementation 'network.mysterium.openvpn:icsopenvpn:0.7.55-myst'
+ implementation 'androidx.media3:media3-exoplayer:1.11.1'
+ implementation 'androidx.media3:media3-exoplayer-hls:1.11.1'
+ implementation 'androidx.media3:media3-ui:1.11.1'
+}
+
+gradle.taskGraph.whenReady { graph ->
+  if(graph.allTasks.any { it.project == project && it.name.toLowerCase(java.util.Locale.ROOT).contains('release') }) {
+    if(productionSigning.values().any { !it } || !file(productionSigning.file).isFile())
+      throw new GradleException('Firma de producción incompleta: configure SNAPTVNOW_KEYSTORE_FILE, SNAPTVNOW_STORE_PASSWORD, SNAPTVNOW_KEY_ALIAS y SNAPTVNOW_KEY_PASSWORD.')
+  }
+}

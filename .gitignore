@@ -1,0 +1,14 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+*.idsig
+*.keystore
+*.jks
+*.p12
+*.properties.local
+.idea/
+vendor/openvpn-engine/
+*.iml

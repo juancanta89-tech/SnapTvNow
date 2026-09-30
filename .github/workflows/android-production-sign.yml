@@ -1,0 +1,58 @@
+name: Sign production APK
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mysteriumnetwork/openvpn_dart
+          ref: e0b86e5c4f0c05a9fc3aa1ca9311275663657b68
+          path: vendor/openvpn-engine
+      - name: Verify OpenVPN engine
+        run: echo '3540c8579b0056baac517cb6c930d9d9fb19cbbdf6216e4353fce5513aee50f6  vendor/openvpn-engine/android/localmaven/network/mysterium/openvpn/icsopenvpn/0.7.55-myst/icsopenvpn-0.7.55-myst.aar' | sha256sum -c -
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android platform
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Decode private signing key
+        env:
+          SIGNING_KEY_B64: ${{ secrets.SNAPTVNOW_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$SIGNING_KEY_B64" ]; then echo 'Missing production signing key'; exit 1; fi
+          printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/snaptvnow-production.jks"
+          chmod 600 "$RUNNER_TEMP/snaptvnow-production.jks"
+      - name: Build and verify signed APK
+        env:
+          SNAPTVNOW_KEYSTORE_FILE: ${{ runner.temp }}/snaptvnow-production.jks
+          SNAPTVNOW_STORE_PASSWORD: ${{ secrets.SNAPTVNOW_STORE_PASSWORD }}
+          SNAPTVNOW_KEY_ALIAS: ${{ secrets.SNAPTVNOW_KEY_ALIAS }}
+          SNAPTVNOW_KEY_PASSWORD: ${{ secrets.SNAPTVNOW_KEY_PASSWORD }}
+        run: |
+          gradle :app:assembleRelease --no-daemon
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/release/app-release.apk
+      - name: Upload signed APK for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: SNAPTVNOW-production-review
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove private key from runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/snaptvnow-production.jks"
