@@ -4,28 +4,26 @@ La APK «VPN Prueba 3» es una instalación de pruebas con el identificador `com
 
 ## Custodia de la clave
 
-La clave privada debe generarse y conservarse bajo control del propietario. No la publiques en GitHub, no la envíes por chat ni la subas al panel. Guarda dos copias cifradas en ubicaciones separadas junto con el alias y las contraseñas; perder la clave puede impedir actualizar instalaciones distribuidas fuera de Play. Si ya existe una APK instalada con `com.snaptvnow.tv`, compara su certificado antes de decidir si esta clave nueva puede actualizarla.
+La clave privada debe generarse y conservarse bajo control del propietario. No la publiques en GitHub, no la envíes por chat ni la subas al panel. Guarda dos copias privadas en ubicaciones separadas y conserva la contraseña en un gestor seguro; perder la clave puede impedir actualizar instalaciones distribuidas fuera de Play. Si ya existe una APK instalada con `com.snaptvnow.tv`, compara su certificado antes de decidir si esta clave nueva puede actualizarla.
 
-En un equipo propio con JDK 17+, ejecuta `keytool` de forma interactiva (te pedirá la contraseña sin mostrarla):
+La clave creada por el propietario desde Termux es un almacén PKCS12 llamado `snaptvnow-production.jks`, con alias `snaptvnow`, RSA de 4096 bits y validez de 12000 días. Se creó de manera interactiva con:
 
 ```bash
-mkdir -p "$HOME/SNAPTVNOW-private"
-keytool -genkeypair -storetype PKCS12 -keystore "$HOME/SNAPTVNOW-private/snaptvnow-production.jks" -alias snaptvnow-production -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=SNAPTVNOW, OU=Android, O=SNAPTVNOW"
-keytool -list -v -keystore "$HOME/SNAPTVNOW-private/snaptvnow-production.jks" -alias snaptvnow-production
+keytool -genkeypair -keystore snaptvnow-production.jks -storetype PKCS12 -alias snaptvnow -keyalg RSA -keysize 4096 -validity 12000 -dname "CN=SNAPTVNOW, OU=Android, O=SNAPTVNOW"
 ```
 
-Anota la huella SHA-256 del certificado. Comprueba que las copias se pueden abrir con `keytool -list` antes de distribuir la primera APK.
+La contraseña y el archivo no se almacenan en el repositorio. Comprueba que la copia de respaldo se puede abrir con `keytool -list -v -keystore snaptvnow-production.jks -alias snaptvnow` y anota la huella SHA-256 del certificado antes de distribuir la primera APK.
 
 ## Secretos privados para la compilación
 
-En el repositorio GitHub, configura el entorno `production` con aprobación obligatoria del propietario. Añade allí cuatro secretos de Actions:
+En el repositorio GitHub, usa el entorno `production` con aprobación del propietario. Añade allí cuatro secretos de Actions:
 
 | Nombre | Contenido |
 | --- | --- |
 | `SNAPTVNOW_KEYSTORE_BASE64` | Contenido del archivo .jks codificado en Base64, en una sola línea |
 | `SNAPTVNOW_STORE_PASSWORD` | Contraseña del almacén |
-| `SNAPTVNOW_KEY_ALIAS` | `snaptvnow-production` |
-| `SNAPTVNOW_KEY_PASSWORD` | Contraseña de la clave (igual a la del almacén PKCS12 si keytool no solicita otra) |
+| `SNAPTVNOW_KEY_ALIAS` | `snaptvnow` |
+| `SNAPTVNOW_KEY_PASSWORD` | La misma contraseña del almacén PKCS12 |
 
 El flujo `Sign production APK` es manual y solo corre desde `main`. Se detiene si faltan secretos, compila con el motor OpenVPN verificado, valida la firma con `apksigner` y deja la APK como artefacto privado de revisión por siete días. No publica ninguna versión a clientes.
 
