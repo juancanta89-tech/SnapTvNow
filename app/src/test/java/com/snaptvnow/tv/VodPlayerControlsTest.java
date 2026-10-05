@@ -80,8 +80,9 @@ public class VodPlayerControlsTest {
     VodPlayerControls.configure(view);
     activity.setContentView(view);
     view.setPlayer(player);
-    doAnswer(call -> { position = call.getArgument(1); emit(Player.EVENT_POSITION_DISCONTINUITY); return null; })
-        .when(player).seekTo(anyInt(), anyLong());
+    // PlayerControlView seeks inside the current item with the single-position overload.
+    doAnswer(call -> { position = call.getArgument(0); emit(Player.EVENT_POSITION_DISCONTINUITY); return null; })
+        .when(player).seekTo(anyLong());
     view.showController();
     view.measure(View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY),
         View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY));
@@ -112,7 +113,7 @@ public class VodPlayerControlsTest {
     assertTrue(bar.onTouchEvent(up));
     down.recycle();
     up.recycle();
-    verify(player).seekTo(0, 120_000);
+    verify(player).seekTo(120_000);
   }
 
   @Test public void dpadOnTimeBarSeeksForwardAndBackwardByTenSeconds() {
@@ -122,12 +123,12 @@ public class VodPlayerControlsTest {
         new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)));
     bar.onKeyDown(KeyEvent.KEYCODE_DPAD_CENTER,
         new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
-    verify(player).seekTo(0, 40_000);
+    verify(player).seekTo(40_000);
     assertTrue(bar.onKeyDown(KeyEvent.KEYCODE_DPAD_LEFT,
         new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT)));
     bar.onKeyDown(KeyEvent.KEYCODE_DPAD_CENTER,
         new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
-    verify(player).seekTo(0, 30_000);
+    verify(player).seekTo(30_000);
   }
 
   @Test public void lateDurationAndChangedPositionUpdateActualTimeBar() {
@@ -145,7 +146,7 @@ public class VodPlayerControlsTest {
         new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
     bar.onKeyDown(KeyEvent.KEYCODE_DPAD_CENTER,
         new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER));
-    verify(player).seekTo(0, 100_000);
+    verify(player).seekTo(100_000);
   }
 
   private void emit(int... flags) {
