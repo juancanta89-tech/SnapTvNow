@@ -6,7 +6,7 @@ on:
 
 jobs:
   compile:
-    runs-on: ubuntu-latest
+    runs-on: macos-15-intel
     permissions:
       contents: read
     steps:
@@ -17,7 +17,7 @@ jobs:
           ref: e0b86e5c4f0c05a9fc3aa1ca9311275663657b68
           path: vendor/openvpn-engine
       - name: Verify OpenVPN engine
-        run: echo '3540c8579b0056baac517cb6c930d9d9fb19cbbdf6216e4353fce5513aee50f6  vendor/openvpn-engine/android/localmaven/network/mysterium/openvpn/icsopenvpn/0.7.55-myst/icsopenvpn-0.7.55-myst.aar' | sha256sum -c -
+        run: echo '3540c8579b0056baac517cb6c930d9d9fb19cbbdf6216e4353fce5513aee50f6  vendor/openvpn-engine/android/localmaven/network/mysterium/openvpn/icsopenvpn/0.7.55-myst/icsopenvpn-0.7.55-myst.aar' | shasum -a 256 -c -
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -25,11 +25,21 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
       - name: Install Android platform
         run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0'
-      - name: Build VPN test APK
-        run: gradle :app:assembleDebug --no-daemon
+      - name: Test VOD playback and build test APK
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Upload playback test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SNAPTVNOW-playback-tests
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload VPN test APK
         uses: actions/upload-artifact@v4
         with:

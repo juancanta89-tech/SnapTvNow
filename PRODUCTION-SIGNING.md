@@ -25,6 +25,6 @@ En el repositorio GitHub, usa el entorno `production` con aprobación del propie
 | `SNAPTVNOW_KEY_ALIAS` | `snaptvnow` |
 | `SNAPTVNOW_KEY_PASSWORD` | La misma contraseña del almacén PKCS12 |
 
-El flujo `Sign production APK` es manual y solo corre desde `main`. Se detiene si faltan secretos, compila con el motor OpenVPN verificado, valida la firma con `apksigner` y deja la APK como artefacto privado de revisión por siete días. No publica ninguna versión a clientes.
+El flujo `Sign production APK` se prepara automáticamente cuando cambia el código de la app en `main` y también permite ejecución manual desde esa rama. Conserva la aprobación del propietario en el entorno `production`. Después de esa aprobación, ejecuta las pruebas del reproductor, compila con el motor OpenVPN verificado, valida la firma con `apksigner` y deja la APK como artefacto privado de revisión por siete días. Se detiene si faltan secretos. No publica ninguna versión a clientes.
 
 Antes de fusionar y ejecutar el flujo: confirmar identificador, número de versión, migración de instalaciones previas, pruebas en varios dispositivos, licencia GPL del motor y política de actualizaciones. La app y el panel siguen pendientes de estas verificaciones para una entrega masiva.

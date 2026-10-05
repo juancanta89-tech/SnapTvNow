@@ -1,6 +1,10 @@
 name: Sign production APK
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
 
 permissions:
   contents: read
@@ -8,7 +12,7 @@ permissions:
 jobs:
   release:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: macos-15-intel
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +22,7 @@ jobs:
           ref: e0b86e5c4f0c05a9fc3aa1ca9311275663657b68
           path: vendor/openvpn-engine
       - name: Verify OpenVPN engine
-        run: echo '3540c8579b0056baac517cb6c930d9d9fb19cbbdf6216e4353fce5513aee50f6  vendor/openvpn-engine/android/localmaven/network/mysterium/openvpn/icsopenvpn/0.7.55-myst/icsopenvpn-0.7.55-myst.aar' | sha256sum -c -
+        run: echo '3540c8579b0056baac517cb6c930d9d9fb19cbbdf6216e4353fce5513aee50f6  vendor/openvpn-engine/android/localmaven/network/mysterium/openvpn/icsopenvpn/0.7.55-myst/icsopenvpn-0.7.55-myst.aar' | shasum -a 256 -c -
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -26,7 +30,7 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
       - name: Install Android platform
         run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0'
       - name: Decode private signing key
@@ -43,9 +47,9 @@ jobs:
           SNAPTVNOW_KEY_ALIAS: ${{ secrets.SNAPTVNOW_KEY_ALIAS }}
           SNAPTVNOW_KEY_PASSWORD: ${{ secrets.SNAPTVNOW_KEY_PASSWORD }}
         run: |
-          gradle :app:assembleRelease --no-daemon
+          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-          sha256sum app/build/outputs/apk/release/app-release.apk
+          shasum -a 256 app/build/outputs/apk/release/app-release.apk
       - name: Upload signed APK for review
         uses: actions/upload-artifact@v4
         with:
