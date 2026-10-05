@@ -11,7 +11,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.TextView;
 import androidx.media3.common.C;
-import androidx.media3.common.util.FlagSet;
+import androidx.media3.common.FlagSet;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackParameters;
