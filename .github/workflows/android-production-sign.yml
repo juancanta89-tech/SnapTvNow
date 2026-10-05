@@ -43,7 +43,7 @@ jobs:
           SNAPTVNOW_KEY_ALIAS: ${{ secrets.SNAPTVNOW_KEY_ALIAS }}
           SNAPTVNOW_KEY_PASSWORD: ${{ secrets.SNAPTVNOW_KEY_PASSWORD }}
         run: |
-          gradle :app:assembleRelease --no-daemon
+          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           sha256sum app/build/outputs/apk/release/app-release.apk
       - name: Upload signed APK for review

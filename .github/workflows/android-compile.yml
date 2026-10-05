@@ -28,8 +28,18 @@ jobs:
           gradle-version: '8.9'
       - name: Install Android platform
         run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0'
-      - name: Build VPN test APK
-        run: gradle :app:assembleDebug --no-daemon
+      - name: Test VOD playback and build test APK
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Upload playback test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SNAPTVNOW-playback-tests
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload VPN test APK
         uses: actions/upload-artifact@v4
         with:
