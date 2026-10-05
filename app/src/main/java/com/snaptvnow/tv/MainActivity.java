@@ -305,6 +305,7 @@ public class MainActivity extends Activity {
   }
   @Override protected void onPause(){
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}
+    if(vodSession!=null)vodSession.saveNow();
     super.onPause();
   }
   @Override protected void onResume(){
@@ -645,7 +646,6 @@ public class MainActivity extends Activity {
   private void rememberPlayback(){if(playing&&video!=null){resumePosition=vodSession!=null?vodSession.lifecyclePosition():Math.max(0,video.getCurrentPosition());resumePaused=!video.getPlayWhenReady()||video.getPlaybackState()==Player.STATE_ENDED;}}
   @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(playing&&currentItem!=null){rememberPlayback();play(currentItem);}else render();}
   @Override protected void onStart(){super.onStart();if(playing&&video==null&&currentItem!=null)play(currentItem);}
-  @Override protected void onPause(){if(vodSession!=null)vodSession.saveNow();super.onPause();}
   @Override protected void onStop(){rememberPlayback();releaseVideo();super.onStop();}
   @Override public void onBackPressed(){if(playing){render();return;}if(logged&&!section.equals("Inicio")){section="Inicio";render();return;}super.onBackPressed();}
 }
