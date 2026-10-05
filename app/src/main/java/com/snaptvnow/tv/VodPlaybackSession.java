@@ -78,6 +78,12 @@ final class VodPlaybackSession implements Player.Listener {
     save(true);
   }
 
+  long lifecyclePosition() {
+    if (completed) return 0;
+    if (reachedReady) return Math.max(0, player.getCurrentPosition());
+    return Math.max(0, requestedStartPosition);
+  }
+
   void close() {
     if (closed) return;
     save(true);

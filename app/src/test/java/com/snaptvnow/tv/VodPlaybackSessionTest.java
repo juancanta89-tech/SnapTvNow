@@ -86,6 +86,7 @@ public class VodPlaybackSessionTest {
     session.start(item, -1, false);
     position = 0;
     duration = C.TIME_UNSET;
+    assertEquals(91_250, session.lifecyclePosition());
     session.close();
     assertEquals(91_250, history.position("subscriber-a", "movie17"));
   }
@@ -114,6 +115,7 @@ public class VodPlaybackSessionTest {
     session.onPlaybackStateChanged(Player.STATE_READY);
     position = duration;
     session.onPlaybackStateChanged(Player.STATE_ENDED);
+    assertEquals(0, session.lifecyclePosition());
     session.close();
     assertEquals(0, history.position("subscriber-a", "movie17"));
   }

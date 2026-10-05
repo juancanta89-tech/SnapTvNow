@@ -642,7 +642,7 @@ public class MainActivity extends Activity {
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
   @Override public boolean dispatchKeyEvent(KeyEvent event){if(playing&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}
   @Override public boolean onKeyDown(int code,KeyEvent event){if(playing&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_DPAD_UP||code==KeyEvent.KEYCODE_DPAD_DOWN)){showPlayerControls();}return super.onKeyDown(code,event);}
-  private void rememberPlayback(){if(playing&&video!=null){resumePosition=Math.max(0,video.getCurrentPosition());resumePaused=!video.getPlayWhenReady();}}
+  private void rememberPlayback(){if(playing&&video!=null){resumePosition=vodSession!=null?vodSession.lifecyclePosition():Math.max(0,video.getCurrentPosition());resumePaused=!video.getPlayWhenReady()||video.getPlaybackState()==Player.STATE_ENDED;}}
   @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(playing&&currentItem!=null){rememberPlayback();play(currentItem);}else render();}
   @Override protected void onStart(){super.onStart();if(playing&&video==null&&currentItem!=null)play(currentItem);}
   @Override protected void onPause(){if(vodSession!=null)vodSession.saveNow();super.onPause();}
