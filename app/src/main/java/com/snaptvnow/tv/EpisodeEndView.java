@@ -13,7 +13,7 @@ final class EpisodeEndView extends LinearLayout {
   private static final int NAVY=0xff071729, CYAN=0xff29dce8, WHITE=0xffffffff;
   private final TextView chapter, status, next, cancel, automatic, episodes;
   EpisodeEndView(Context context, Runnable playNext, Runnable stop, Runnable toggle,
-      Runnable returnToEpisodes, Runnable retry) {
+      Runnable returnToEpisodes) {
     super(context);
     this.playNext=playNext;
     setOrientation(VERTICAL); setPadding(dp(20),dp(16),dp(20),dp(16));

@@ -828,9 +828,11 @@ public class MainActivity extends Activity {
           stage.addView(cover,new FrameLayout.LayoutParams(-1,-1));
           episodeEndView=new EpisodeEndView(MainActivity.this,()->{if(episodeController!=null)episodeController.nextNow();},
               ()->{if(episodeController!=null)episodeController.cancel();},MainActivity.this::toggleEpisodeAutomatic,
-              ()->{Catalog.Item parent=new Catalog.Item(item.seriesId,item.seriesTitle,"Series","","",item.artwork);section="Series";render();openItem(parent);},
-              ()->loadEpisodeQueue(item,activePlayer));
-          FrameLayout.LayoutParams card=new FrameLayout.LayoutParams(Math.min(d(540),getResources().getDisplayMetrics().widthPixels-d(24)),-2,Gravity.CENTER);cover.addView(episodeEndView,card);
+              ()->{Catalog.Item parent=new Catalog.Item(item.seriesId,item.seriesTitle,"Series","","",item.artwork);section="Series";render();openItem(parent);});
+          cover.setPadding(d(12),d(12),d(12),d(12));
+          ScrollView endScroll=new ScrollView(MainActivity.this);endScroll.setFillViewport(false);
+          FrameLayout.LayoutParams card=new FrameLayout.LayoutParams(Math.min(d(540),getResources().getDisplayMetrics().widthPixels-d(24)),-2,Gravity.CENTER);cover.addView(endScroll,card);
+          endScroll.addView(episodeEndView,new ScrollView.LayoutParams(-1,-2));
         }
         episodeEndView.update(state,()->loadEpisodeQueue(item,activePlayer));
         if(first)episodeEndView.initialFocus().requestFocus();

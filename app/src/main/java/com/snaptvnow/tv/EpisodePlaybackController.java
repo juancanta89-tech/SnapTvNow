@@ -28,13 +28,10 @@ final class EpisodePlaybackController implements Player.Listener {
   private Catalog.Item next;
   private boolean ended, loading = true, failed, automatic, cancelled, advancing, closed;
   private int seconds;
-  private final Runnable advance = () -> {
-    if (closed || !advancing || next == null) return;
-    listener.onNext(next);
-  };
+  private final Runnable advance;
   private final Runnable tick = new Runnable() {
     @Override public void run() {
-      if (closed || !ended || !automatic || cancelled || advancing || next == null) return;
+      if (closed || !ended || loading || failed || !automatic || cancelled || advancing || next == null) return;
       if (--seconds <= 0) { nextNow(); return; }
       emit();
       handler.postDelayed(this, 1000);
@@ -42,6 +39,10 @@ final class EpisodePlaybackController implements Player.Listener {
   };
   EpisodePlaybackController(Player player, boolean automatic, Listener listener) {
     this.player = player; this.automatic = automatic; this.listener = listener;
+    advance = () -> {
+      if (closed || !advancing || next == null) return;
+      listener.onNext(next);
+    };
     player.addListener(this);
   }
   void resolve(Catalog.Item next) {
@@ -52,11 +53,11 @@ final class EpisodePlaybackController implements Player.Listener {
   }
   void resolutionFailed() {
     if (closed) return;
-    loading = false; failed = true; emit();
+    loading = false; failed = true; stopCountdown(); emit();
   }
   void retrying() {
     if (closed) return;
-    loading = true; failed = false; emit();
+    loading = true; failed = false; stopCountdown(); emit();
   }
   void restoreEnded() {
     if (closed) return;

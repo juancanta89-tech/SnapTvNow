@@ -28,7 +28,7 @@ public class EpisodeEndViewTest {
       public void onStatus(EpisodePlaybackController.State state){if(view!=null)view.update(state,()->retries++);}
       public void onNext(Catalog.Item next){starts++;}
     });
-    view=new EpisodeEndView(activity,controller::nextNow,controller::cancel,()->controller.setAutomatic(!controller.state().automatic),()->returns++,()->retries++);
+    view=new EpisodeEndView(activity,controller::nextNow,controller::cancel,()->controller.setAutomatic(!controller.state().automatic),()->returns++);
     activity.setContentView(view);controller.resolve(EpisodeQueueTest.episode("2","series1",2,1));controller.onPlaybackStateChanged(Player.STATE_ENDED);
   }
   @After public void tearDown(){controller.close();activity.finish();}
