@@ -57,7 +57,7 @@ final class Artwork {
       try(FileOutputStream out=new FileOutputStream(temporary)){if(!thumbnail.compress(Bitmap.CompressFormat.JPEG,75,out))return;}
       if(!temporary.renameTo(target))return;target.setLastModified(System.currentTimeMillis());
       File[] covers=directory.listFiles((folder,name)->name.endsWith(".jpg"));
-      if(covers!=null&&covers.length>32){java.util.Arrays.sort(covers,java.util.Comparator.comparingLong(File::lastModified));for(int i=0;i<covers.length-32;i++)covers[i].delete();}
+      if(covers!=null&&covers.length>32){java.util.Arrays.sort(covers,(a,b)->Long.compare(a.lastModified(),b.lastModified()));for(int i=0;i<covers.length-32;i++)covers[i].delete();}
     }catch(Exception ignored){}finally{temporary.delete();}
   }
   private static boolean valid(String address){return address!=null&&(address.startsWith("https://")||address.startsWith("http://"));}

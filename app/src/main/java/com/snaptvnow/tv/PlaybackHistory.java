@@ -143,7 +143,7 @@ final class PlaybackHistory {
         entries.add(new Entry(item,data.optString("extension","mp4"),position,preferences.getLong(k+".duration",0),updated,done));
       }catch(Exception ignored){ /* Skip an unreadable entry; other bookmarks remain available. */ }
     }
-    entries.sort((a,b)->Long.compare(b.updated,a.updated));
+    java.util.Collections.sort(entries,(a,b)->Long.compare(b.updated,a.updated));
     return entries;
   }
 
