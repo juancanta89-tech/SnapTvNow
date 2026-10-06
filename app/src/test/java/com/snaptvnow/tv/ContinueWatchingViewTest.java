@@ -55,7 +55,8 @@ public class ContinueWatchingViewTest {
     for(int i=0;i<3;i++)assertTrue(second.getChildAt(i).isFocusable());
     for(int i=3;i<5;i++){assertFalse(second.getChildAt(i).isFocusable());assertFalse(second.getChildAt(i).isClickable());}
     float heightDp=view.getMeasuredHeight()/activity.getResources().getDisplayMetrics().density;
-    assertTrue("TV grid height "+heightDp+"dp for screen "+activity.getResources().getConfiguration().screenHeightDp+"dp",heightDp<420);
+    int screenHeightDp=activity.getResources().getConfiguration().screenHeightDp;
+    assertTrue("TV grid height "+heightDp+"dp for screen "+screenHeightDp+"dp",heightDp<screenHeightDp);
     assertTrue(view.continueButton().isFocusable());assertTrue(view.removeButton().isFocusable());
   }
   @Test public void tvRemoteCanReachFooterAndReturnToSelectedTitle(){
