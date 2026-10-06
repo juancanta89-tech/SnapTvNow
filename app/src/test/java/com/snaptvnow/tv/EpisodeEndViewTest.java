@@ -37,7 +37,7 @@ public class EpisodeEndViewTest {
   @After public void tearDown(){controller.close();activity.finish();}
   private TextView button(String tag){return view.findViewWithTag(tag);}
   @Test public void remoteInitiallyFocusesCancelAndCanReachNextAndSetting(){
-    view.initialFocus().requestFocus();assertSame(button("episode_cancel"),activity.getCurrentFocus());
+    assertTrue(view.initialFocus().requestFocus());assertSame(button("episode_cancel"),view.findFocus());
     assertSame(button("episode_next"),button("episode_cancel").focusSearch(View.FOCUS_UP));
     assertSame(button("episode_auto"),button("episode_cancel").focusSearch(View.FOCUS_DOWN));
     button("episode_cancel").performClick();assertTrue(controller.state().cancelled);assertEquals(View.GONE,button("episode_cancel").getVisibility());
