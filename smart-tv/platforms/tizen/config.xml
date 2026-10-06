@@ -9,4 +9,5 @@
   <tizen:privilege name="http://developer.samsung.com/privilege/avplay"/>
   <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
   <access origin="https://storage.googleapis.com" subdomains="false"/>
+  <access origin="https://snaptvnow-control.juancanta89.chatgpt.site" subdomains="false"/>
 </widget>
