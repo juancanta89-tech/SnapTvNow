@@ -112,7 +112,7 @@ public final class XtreamClient {
         result.add(new Catalog.Item("episode"+ep,e.optString("title",series.title+" · Episodio "+episodeNumber),"Series",path,"Temporada "+season,series.artwork,series.id,series.title,seasonNumber,episodeNumber));
       }
     }
-    result.sort(java.util.Comparator.comparingInt((Catalog.Item item)->item.seasonNumber).thenComparingInt(item->item.episodeNumber));return result;
+    java.util.Collections.sort(result,EpisodeQueue.ORDER);return result;
   }
   private static int numericSeason(String season){try{return Integer.parseInt(season);}catch(Exception ignored){return 0;}}
   Catalog.Item resume(PlaybackHistory.Entry entry) throws Exception {

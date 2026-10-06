@@ -7,7 +7,7 @@ def productionSigning = [
   keyPassword: System.getenv('SNAPTVNOW_KEY_PASSWORD')
 ]
 android { namespace 'com.snaptvnow.tv'; compileSdk 36
- defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 37; versionName '1.0.8'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
+ defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 38; versionName '1.0.9'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
  signingConfigs {
   production {
    storeFile file(productionSigning.file ?: 'production-key-not-configured.jks')
