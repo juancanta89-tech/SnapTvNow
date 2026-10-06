@@ -1,1 +1,14 @@
-{"name":"snaptvnow-smart-tv","version":"0.1.0","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.mjs","build":"node scripts/build.mjs","check":"node scripts/check.mjs"}}
+{
+  "name": "snaptvnow-smart-tv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs",
+    "package:sources": "node scripts/package.mjs sources",
+    "package:webos": "node scripts/package.mjs webos",
+    "package:tizen": "node scripts/package.mjs tizen"
+  }
+}
