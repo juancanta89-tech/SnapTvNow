@@ -73,4 +73,19 @@ public class ContinueWatchingTest {
     history.save("alice",episode2.id,66_000,100_000,true);assertEquals(1,EpisodeSelection.recommended(Arrays.asList(episode1,episode2),history,"alice"));watch(movie,10_000);
     RuntimeEnvironment.getApplication().getSharedPreferences("vod_playback",0).edit().putString("broken.metadata","{").commit();assertEquals(1,history.recent("alice").size());assertEquals(66_000,history.position("alice",episode2.id));
   }
+  @Test public void moviesFilterShowsOnlyPendingMoviesAndSeriesFilterKeepsChapters(){
+    watch(movie,91_000);watch(episode2,100_000);assertEquals("movie17",history.recent("alice",PlaybackHistory.Kind.MOVIES).get(0).item.id);assertEquals(1,history.recent("alice",PlaybackHistory.Kind.MOVIES).size());assertEquals("episode42",history.recent("alice",PlaybackHistory.Kind.SERIES).get(0).item.id);history.complete("alice",movie.id);assertTrue(history.recent("alice",PlaybackHistory.Kind.MOVIES).isEmpty());
+  }
+  @Test public void loadingMovieCatalogRecoversLegacyTitleWithoutLosingItsPositionOrAddingOtherMovies(){
+    history.save("alice",movie.id,91_000,200_000,true);history.rememberBookmarks("alice",Arrays.asList(movie,new Catalog.Item("movie18","Otra película","Películas","https://example.invalid/18.mp4","Drama")));
+    List<PlaybackHistory.Entry> entries=history.recent("alice",PlaybackHistory.Kind.MOVIES);assertEquals(1,entries.size());assertEquals("Una película",entries.get(0).title());assertEquals(91_000,entries.get(0).position);long time=entries.get(0).updated;history.rememberBookmarks("alice",Arrays.asList(movie));assertEquals(time,history.recent("alice",PlaybackHistory.Kind.MOVIES).get(0).updated);
+  }
+  @Test public void legacyHashAndMoviePositionFromBeforeMetadataWereIntroducedArePreserved() throws Exception {
+    byte[] bytes=java.security.MessageDigest.getInstance("SHA-256").digest("alice\u0000movie17".getBytes(java.nio.charset.StandardCharsets.UTF_8));StringBuilder oldKey=new StringBuilder();for(byte b:bytes)oldKey.append(String.format(java.util.Locale.ROOT,"%02x",b&255));
+    RuntimeEnvironment.getApplication().getSharedPreferences("vod_playback",0).edit().putLong(oldKey+".position",91_000).putLong(oldKey+".duration",200_000).commit();history.rememberBookmarks("alice",Arrays.asList(movie));assertEquals(91_000,history.recent("alice",PlaybackHistory.Kind.MOVIES).get(0).position);
+  }
+  @Test public void moreThanOneHundredRecentSeriesCannotHideAnOlderPendingMovie(){
+    watch(movie,91_000);for(int i=0;i<105;i++){Catalog.Item episode=new Catalog.Item("episode"+(1000+i),"Capítulo","Series","https://example.invalid/1.mp4","Temporada 1","","series"+(1000+i),"Serie "+i,1,1);watch(episode,10_000);}
+    assertEquals(100,history.recent("alice").size());assertEquals(1,history.recent("alice",PlaybackHistory.Kind.MOVIES).size());assertEquals("movie17",history.recent("alice",PlaybackHistory.Kind.MOVIES).get(0).item.id);
+  }
 }

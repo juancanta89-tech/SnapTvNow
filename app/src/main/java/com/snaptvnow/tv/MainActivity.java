@@ -97,6 +97,7 @@ public class MainActivity extends Activity {
   private int searchScreenGeneration;
   private Runnable searchDebounce;
   private SearchInput searchInput;
+  private PlaybackHistory.Kind continueKind=PlaybackHistory.Kind.ALL;
   private final java.util.concurrent.ExecutorService searchExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
   private AlertDialog trackDialog;
   private TrackSelectionParameters resumeTrackParameters;
@@ -201,7 +202,7 @@ public class MainActivity extends Activity {
     switch(section){case "Inicio":home();break;case "Explorar":explore();break;case "PPV HOY":sports();break;
       case "Cuenta":account();break;
       case "Buscar":search();break;case "Continuar viendo":continueWatching(false);break;case "Mi lista":favoritesPage();break;
-      default:if(client!=null&&!section.equals(loadedSection))categoryPicker();else catalog();}
+      default:continueSectionPreview();if(client!=null&&!section.equals(loadedSection))categoryPicker();else catalog();}
   }
   private void login(){
     LinearLayout panel=col();panel.setPadding(d(24),d(28),d(24),d(24));root.addView(panel);
@@ -394,15 +395,29 @@ public class MainActivity extends Activity {
     gap(body,12);body.addView(text(client==null?"Vista de demostración. Conecta una línea para consultar su catálogo.":"Explora las categorías de tu línea para ver canales y títulos disponibles.",13,MUTED,false));
   }
   private void continueWatching(boolean preview){
-    List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount());
     title("Continuar viendo");
+    if(!preview){
+      LinearLayout filters=new LinearLayout(this);body.addView(filters);String[] names={"Todo","Películas","Series"};PlaybackHistory.Kind[] kinds=PlaybackHistory.Kind.values();
+      for(int index=0;index<kinds.length;index++){PlaybackHistory.Kind kind=kinds[index];TextView tab=action(names[index],()->{continueKind=kind;render();});if(kind==continueKind){tab.setTextColor(NAVY);tab.setBackground(gradient(CYAN,0xff12a9c6,12));}filters.addView(tab,new LinearLayout.LayoutParams(0,d(44),1));}gap(body,10);
+    }
+    List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount(),preview?PlaybackHistory.Kind.ALL:continueKind);
     if(entries.isEmpty())body.addView(text("Aquí aparecerán las películas y el último capítulo que dejes pendiente en este dispositivo.",14,MUTED,false));
     int count=preview?Math.min(4,entries.size()):entries.size();
     for(int index=0;index<count;index++){
       PlaybackHistory.Entry entry=entries.get(index);
       body.addView(new ContinueWatchingCard(this,entry,()->resumeEntry(entry)),new LinearLayout.LayoutParams(-1,-2));gap(body,8);
     }
-    if(preview){body.addView(action("Ver todo · Continuar viendo",()->{section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));}
+    if(preview){body.addView(action("Ver todo · Continuar viendo",()->{continueKind=PlaybackHistory.Kind.ALL;section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));}
+  }
+  private void continueSectionPreview(){
+    if(!section.equals("Películas")&&!section.equals("Series"))return;
+    playbackHistory.rememberBookmarks(playbackAccount(),items);
+    PlaybackHistory.Kind kind=section.equals("Películas")?PlaybackHistory.Kind.MOVIES:PlaybackHistory.Kind.SERIES;
+    List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount(),kind);
+    title("Continuar "+section.toLowerCase(Locale.ROOT));
+    if(entries.isEmpty())body.addView(text("Los títulos que dejes pendientes aparecerán aquí.",14,MUTED,false));
+    for(int index=0;index<Math.min(2,entries.size());index++){PlaybackHistory.Entry entry=entries.get(index);body.addView(new ContinueWatchingCard(this,entry,()->resumeEntry(entry)),new LinearLayout.LayoutParams(-1,-2));gap(body,8);}
+    body.addView(action("Ver todo · Continuar "+section.toLowerCase(Locale.ROOT),()->{continueKind=kind;section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));gap(body,18);
   }
   private void resumeEntry(PlaybackHistory.Entry entry){
     if(client==null){Toast.makeText(this,"Conecta tu línea para continuar",Toast.LENGTH_LONG).show();return;}
@@ -447,7 +462,7 @@ public class MainActivity extends Activity {
       List<XtreamClient.Group> groups=client.categories(requested);
       runOnUiThread(()->{
         if(!section.equals(requested)||body!=target)return;
-        body.removeAllViews();title(requested);
+        body.removeAllViews();continueSectionPreview();title(requested);
         List<XtreamClient.Group> visible=new ArrayList<>();
         for(XtreamClient.Group group:groups){
           if(requested.equals("PPV HOY")&&!group.name.toLowerCase(Locale.ROOT).matches(".*(ppv|evento|event|pay.per.view|ufc|boxeo).*"))continue;
@@ -457,7 +472,7 @@ public class MainActivity extends Activity {
         else categoryGrid(visible,requested);
       });
     }catch(Exception e){runOnUiThread(()->{
-      if(section.equals(requested)&&body==target){body.removeAllViews();title(requested);body.addView(text("No se pudieron cargar categorías: "+e.getMessage(),15,MUTED,false));}
+      if(section.equals(requested)&&body==target){body.removeAllViews();continueSectionPreview();title(requested);body.addView(text("No se pudieron cargar categorías: "+e.getMessage(),15,MUTED,false));}
     });}}).start();
   }
   private void categoryGrid(List<XtreamClient.Group> groups,String requested){
@@ -492,6 +507,7 @@ public class MainActivity extends Activity {
       LinearLayout caption=col();caption.setPadding(d(9),d(6),d(8),d(8));caption.setBackground(gradient(0x66071729,0xee071729,9));
       FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);card.addView(caption,cp);
       TextView type=text(live?"●  EN VIVO":item.category.toUpperCase(Locale.ROOT),10,CYAN,true);caption.addView(type);
+      if(item.id.startsWith("movie")){long position=playbackHistory.position(playbackAccount(),item.id);if(position>0){TextView resume=text("Continuar · "+PlaybackHistory.time(position),11,CYAN,true);resume.setSingleLine(true);resume.setEllipsize(TextUtils.TruncateAt.END);caption.addView(resume);}}
       TextView name=text(item.title,14,WHITE,true);name.setMaxLines(2);name.setEllipsize(android.text.TextUtils.TruncateAt.END);caption.addView(name);
       TextView save=action(favorites.contains(item.id)?"♥":"♡",()->{toggleFavorite(item);render();});save.setTextSize(20);
       FrameLayout.LayoutParams saveParams=new FrameLayout.LayoutParams(d(42),d(40),Gravity.TOP|Gravity.RIGHT);saveParams.setMargins(0,d(5),d(5),0);card.addView(save,saveParams);
@@ -501,6 +517,7 @@ public class MainActivity extends Activity {
   }
   private int nIndex(Catalog.Item item){return Math.max(0,items.indexOf(item));}
   private void openItem(Catalog.Item item){
+    if(MovieResumeDialog.show(this,playbackHistory,playbackAccount(),item,()->play(item)))return;
     if(client==null||!item.id.startsWith("series")){play(item);return;}
     final XtreamClient session=client;final LinearLayout origin=body;
     new Thread(()->{try{
@@ -583,6 +600,7 @@ public class MainActivity extends Activity {
     });
   }
   private void showSearchResults(LinearLayout results,List<Catalog.Item> matches,List<Catalog.Item> all,CatalogSearch.Scope scope,TextView status){
+    playbackHistory.rememberBookmarks(playbackAccount(),matches);
     results.removeAllViews();
     CatalogCardGrid grid=new CatalogCardGrid(this,matches,television(),catalogWindowWidth(),item->{
       seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);
