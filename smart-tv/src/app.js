@@ -7,7 +7,14 @@ const store = new Store(localStorage), panel = new Panel(config);
 let session=null, section=SECTIONS[0], items=[], query='', episodes=null, currentItem=null, returnId=null, requestId=0;
 let favoriteData=store.read('favorites',{});
 if (!favoriteData || typeof favoriteData !== 'object' || Array.isArray(favoriteData)) favoriteData={};
-const player=new Player($('video'), message => {$('play-status').textContent=message;});
+const progress=store.read('progress',{});
+const positions=progress && typeof progress==='object' && !Array.isArray(progress)?progress:{};
+const player=new Player($('video'), message => {$('play-status').textContent=message;}, {
+  read:item=>positions[item.id],
+  write:(item,seconds)=>{positions[item.id]=seconds;try {store.write('progress',positions);}catch(_){}},
+  clear:item=>{delete positions[item.id];try {store.write('progress',positions);}catch(_){} }
+});
+let searchScope='Todo', trackIndex={AUDIO:-1,TEXT:-1};
 const text = (tag, value, className) => {const el=document.createElement(tag);el.textContent=value;if(className)el.className=className;return el;};
 function button(label, action, id) {const b=text('button',label);if(id)b.id=id;b.onclick=action;return b;}
 function notice(message) {$('toast').textContent=message;clearTimeout(notice.timer);notice.timer=setTimeout(()=>{$('toast').textContent='';},5000);}
@@ -39,7 +46,7 @@ function loginView(message='') {
 }
 async function signOut() {
   requestId++;player.stop();$('player').hidden=true;
-  store.clear('session');store.clear('favorites');favoriteData={};items=[];episodes=null;query='';section=SECTIONS[0];
+  store.clear('session');store.clear('favorites');store.clear('progress');Object.keys(positions).forEach(k=>delete positions[k]);favoriteData={};items=[];episodes=null;query='';section=SECTIONS[0];
   loginView();await panel.logout();
 }
 async function loadSection() {
@@ -68,13 +75,18 @@ function render(focusId) {
   if(section==='Buscar' && !episodes) {
     const input=document.createElement('input');input.type='search';input.placeholder='Buscar canales, películas y series';input.setAttribute('aria-label','Buscar');input.id='search';input.className='search';input.value=query;
     input.oninput=()=>{query=input.value;renderGrid();};app.append(input);
+    const scopes=text('div','','actions');
+    ['Todo','TV en vivo','Películas','Series'].forEach(scope=>{
+      const b=button(scope,()=>{searchScope=scope;render('scope-'+scope);},'scope-'+scope);
+      b.setAttribute('aria-pressed',String(searchScope===scope));scopes.append(b);
+    });app.append(scopes);
   }
   app.append(text('div','','grid'));app.lastChild.id='grid';renderGrid();
   const target=$(focusId || (section==='Buscar'?'search':'nav-'+SECTIONS.indexOf(section)));if(target)target.focus();
 }
 function renderGrid() {
   const grid=$('grid');grid.replaceChildren();
-  const visible=episodes || selectItems(items,section,query,favorites());
+  const visible=episodes || selectItems(items,section,query,favorites()).filter(i=>section!=='Buscar' || searchScope==='Todo' || i.section===searchScope || (searchScope==='TV en vivo' && i.section==='PPV HOY'));
   if(!visible.length){grid.append(text('p','No hay títulos disponibles.'));return;}
   visible.forEach((item,n)=>{
     const b=button('',()=>openItem(item),'card-'+n);b.className='card';b.dataset.index=n;b.dataset.item=item.id;
@@ -93,14 +105,24 @@ async function openItem(item) {
     }catch(error){notice(error.message);}return;
   }
   if(!item.url){notice('Fuente no disponible');return;}
-  returnId=document.activeElement.id;currentItem=item;$('playing-title').textContent=item.title;$('player').hidden=false;
+  trackIndex={AUDIO:-1,TEXT:-1};returnId=document.activeElement.id;currentItem=item;$('playing-title').textContent=item.title;$('player').hidden=false;
   $('player-favorite').textContent=favoriteData[item.id]?'♥ Quitar favorito':'♡ Favorito';$('close-player').focus();await player.open(item);
 }
-function closePlayer() {player.stop();$('player').hidden=true;const target=$(returnId);if(target)target.focus();}
+function closePlayer() {player.stop();$('player').hidden=true;renderGrid();const target=$(returnId);if(target)target.focus();}
 $('close-player').onclick=closePlayer;
 $('toggle-player').onclick=()=>player.toggle();$('rewind').onclick=()=>player.seek(-10);$('forward').onclick=()=>player.seek(10);
 $('player-favorite').onclick=()=>{toggleFavorite(currentItem);$('player-favorite').textContent=favoriteData[currentItem.id]?'♥ Quitar favorito':'♡ Favorito';};
 $('retry-player').onclick=()=>player.open(currentItem);
+function cycleTrack(type) {
+  const tracks=player.tracks(type);
+  if(!tracks.length){notice('La fuente o el dispositivo no ofrece pistas seleccionables');return;}
+  const options=type==='TEXT'?[{index:-1,label:'Subtítulos desactivados'},...tracks]:tracks;
+  trackIndex[type]=(trackIndex[type]+1)%options.length;
+  const chosen=options[trackIndex[type]];
+  if(player.selectTrack(type,chosen.index))notice(chosen.label);
+}
+$('audio-track').onclick=()=>cycleTrack('AUDIO');
+$('subtitle-track').onclick=()=>cycleTrack('TEXT');
 document.addEventListener('keydown',e=>{
   const active=document.activeElement;
   const back=e.key==='Escape' || e.keyCode===10009 || e.keyCode===461;
