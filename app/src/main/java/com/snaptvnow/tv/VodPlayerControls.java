@@ -14,6 +14,7 @@ final class VodPlayerControls {
     view.setShowFastForwardButton(true);
     view.setShowPreviousButton(false);
     view.setShowNextButton(false);
+    view.setShowSubtitleButton(true);
     TimeBar timeBar = view.findViewById(androidx.media3.ui.R.id.exo_progress);
     if (timeBar != null) timeBar.setKeyTimeIncrement(10_000);
     view.setKeepScreenOn(true);

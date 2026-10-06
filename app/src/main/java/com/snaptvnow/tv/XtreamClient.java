@@ -67,16 +67,34 @@ public final class XtreamClient {
     return groups;
   }
   public List<Catalog.Item> loadCategory(String section,String categoryId,String categoryName) throws Exception {
+    String server=SERVER;
+    String action=section.equals("Películas")?"get_vod_streams":section.equals("Series")?"get_series":"get_live_streams";
+    JSONArray list=new JSONArray(request(server,username,password,action,categoryId,9000,30000,40_000_000));
+    java.util.Map<String,String> names=new java.util.HashMap<>();names.put(categoryId,categoryName);
+    return parseItems(server,username,password,section,list,names);
+  }
+  List<Catalog.Item> loadAll(CatalogSearch.Scope scope) throws Exception {
+    // Omitting category_id asks Xtream for the entire section, including unopened folders.
+    String server=SERVER;
+    String action=scope==CatalogSearch.Scope.MOVIES?"get_vod_streams":scope==CatalogSearch.Scope.SERIES?"get_series":"get_live_streams";
+    JSONArray list=new JSONArray(request(server,username,password,action,null,9000,30000,40_000_000));
+    java.util.Map<String,String> names=new java.util.HashMap<>();
+    String categories=scope==CatalogSearch.Scope.MOVIES?"get_vod_categories":scope==CatalogSearch.Scope.SERIES?"get_series_categories":"get_live_categories";
+    JSONArray folders=new JSONArray(request(server,username,password,categories,null,9000,13000,20_000_000));
+    for(int i=0;i<folders.length();i++){JSONObject folder=folders.optJSONObject(i);if(folder!=null)names.put(folder.optString("category_id"),folder.optString("category_name","Carpeta"));}
+    return parseItems(server,username,password,scope.section,list,names);
+  }
+  static List<Catalog.Item> parseItems(String server,String username,String password,String section,JSONArray list,java.util.Map<String,String> categoryNames) {
     String kind=section.equals("Películas")?"movie":section.equals("Series")?"series":"live";
-    String action=kind.equals("movie")?"get_vod_streams":kind.equals("series")?"get_series":"get_live_streams";
-    JSONArray list=new JSONArray(request(username,password,action,categoryId));List<Catalog.Item> out=new ArrayList<>();
-    for(int k=0;k<list.length()&&k<150;k++){
+    List<Catalog.Item> out=new ArrayList<>();
+    for(int k=0;k<list.length();k++){
       JSONObject j=list.optJSONObject(k);if(j==null)continue;
       String id=j.optString(kind.equals("series")?"series_id":"stream_id","");if(!id.matches("[0-9]+"))continue;
       String title=j.optString("name","Sin título");String ext=j.optString("container_extension","mp4").replaceAll("[^A-Za-z0-9]","");if(ext.isEmpty())ext="mp4";
-      String path=kind.equals("series")?"":SERVER+"/"+kind+"/"+Uri.encode(username)+"/"+Uri.encode(password)+"/"+id+"."+(kind.equals("live")?"m3u8":ext);
+      String path=kind.equals("series")?"":server+"/"+kind+"/"+Uri.encode(username)+"/"+Uri.encode(password)+"/"+id+"."+(kind.equals("live")?"m3u8":ext);
       String artwork=j.optString(kind.equals("series")?"cover":"stream_icon","");if(kind.equals("movie"))artwork=j.optString("stream_icon",j.optString("cover",""));
-      out.add(new Catalog.Item(kind+id,title,section.equals("PPV HOY")?"PPV HOY":section.equals("Deportes")?"Deportes":section.equals("TV en vivo")?"TV en vivo":section,path,categoryName,artwork));
+      String folder=categoryNames.get(j.optString("category_id",""));if(folder==null)folder=section;
+      out.add(new Catalog.Item(kind+id,title,section,path,folder,artwork));
     }
     return out;
   }
