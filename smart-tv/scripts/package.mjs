@@ -8,7 +8,7 @@ const target = process.argv[2] || 'sources';
 mkdirSync('packages', {recursive:true});
 const run = (cmd, args) => execFileSync(cmd, args, {stdio:'inherit'});
 if (target === 'sources') {
-  run('zip', ['-q', '-r', resolve('packages/SNAPTVNOW-TV-demo-sources.zip'), 'dist', 'README.md', 'PACKAGES.md']);
+  run('zip', ['-q', '-r', resolve('packages/SNAPTVNOW-TV-demo-sources.zip'), 'dist', 'README.md', 'PACKAGES.md', 'REAL-PANEL.md']);
 } else if (target === 'webos') {
   run(process.env.ARES_PACKAGE || 'ares-package', ['dist/webos', '-o', 'packages']);
 } else if (target === 'tizen') {
