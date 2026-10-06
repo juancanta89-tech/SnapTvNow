@@ -835,7 +835,7 @@ public class MainActivity extends Activity {
           endScroll.addView(episodeEndView,new ScrollView.LayoutParams(-1,-2));
         }
         episodeEndView.update(state,()->loadEpisodeQueue(item,activePlayer));
-        if(first)episodeEndView.initialFocus().requestFocus();
+        if(first){EpisodeEndView focusTarget=episodeEndView;focusTarget.post(()->{if(episodeEndView==focusTarget&&video==activePlayer)focusTarget.initialFocus().requestFocus();});}
       }
       public void onNext(Catalog.Item next){if(video==activePlayer&&currentItem==item&&playing&&!isFinishing()&&!isDestroyed())play(next);}
     });

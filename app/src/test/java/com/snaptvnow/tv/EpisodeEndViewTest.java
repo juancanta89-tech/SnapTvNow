@@ -30,6 +30,9 @@ public class EpisodeEndViewTest {
     });
     view=new EpisodeEndView(activity,controller::nextNow,controller::cancel,()->controller.setAutomatic(!controller.state().automatic),()->returns++);
     activity.setContentView(view);controller.resolve(EpisodeQueueTest.episode("2","series1",2,1));controller.onPlaybackStateChanged(Player.STATE_ENDED);
+    int width=Math.round(540*activity.getResources().getDisplayMetrics().density);
+    view.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+    view.layout(0,0,width,view.getMeasuredHeight());Shadows.shadowOf(Looper.getMainLooper()).idle();
   }
   @After public void tearDown(){controller.close();activity.finish();}
   private TextView button(String tag){return view.findViewWithTag(tag);}
