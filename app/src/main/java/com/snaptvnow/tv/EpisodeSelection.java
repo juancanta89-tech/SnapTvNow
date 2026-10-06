@@ -5,8 +5,8 @@ import java.util.List;
 final class EpisodeSelection {
   static int recommended(List<Catalog.Item> episodes,PlaybackHistory history,String account){
     String parent=episodes.isEmpty()?"":episodes.get(0).seriesId;
-    for(PlaybackHistory.Entry entry:history.recent(account)){
-      if(parent.isEmpty()||!parent.equals(entry.item.seriesId))continue;
+    PlaybackHistory.Entry entry=history.lastSeries(account,parent);
+    if(entry!=null){
       for(int i=0;i<episodes.size();i++)if(episodes.get(i).id.equals(entry.item.id))return entry.completed&&i+1<episodes.size()?i+1:i;
     }
     for(int i=0;i<episodes.size();i++)if(history.position(account,episodes.get(i).id)>0)return i;
