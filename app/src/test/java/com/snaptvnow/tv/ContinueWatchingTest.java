@@ -86,6 +86,6 @@ public class ContinueWatchingTest {
   }
   @Test public void moreThanOneHundredRecentSeriesCannotHideAnOlderPendingMovie(){
     watch(movie,91_000);for(int i=0;i<105;i++){Catalog.Item episode=new Catalog.Item("episode"+(1000+i),"Capítulo","Series","https://example.invalid/1.mp4","Temporada 1","","series"+(1000+i),"Serie "+i,1,1);watch(episode,10_000);}
-    assertEquals(100,history.recent("alice").size());assertEquals(1,history.recent("alice",PlaybackHistory.Kind.MOVIES).size());assertEquals("movie17",history.recent("alice",PlaybackHistory.Kind.MOVIES).get(0).item.id);
+    assertEquals(9,history.recent("alice").size());assertEquals(8,history.recent("alice",PlaybackHistory.Kind.SERIES).size());assertEquals(1,history.recent("alice",PlaybackHistory.Kind.MOVIES).size());assertEquals("movie17",history.recent("alice",PlaybackHistory.Kind.MOVIES).get(0).item.id);
   }
 }

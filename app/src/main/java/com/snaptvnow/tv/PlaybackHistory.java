@@ -14,6 +14,7 @@ import org.json.JSONObject;
 
 /** Local bookmarks for VOD. Never stores the stream URL or the subscriber's password. */
 final class PlaybackHistory {
+  static final int CONTINUE_LIMIT = 8;
   private final SharedPreferences preferences;
 
   PlaybackHistory(Context context) {
@@ -81,6 +82,14 @@ final class PlaybackHistory {
   }
 
   enum Kind { ALL, MOVIES, SERIES }
+  private static String group(Catalog.Item item){return item.seriesId.isEmpty()?item.id:item.seriesId;}
+  static String artworkKey(String account,Catalog.Item item){return key(account,"cover:"+group(item));}
+
+  /** Hide the whole title, leaving every chapter bookmark and completion flag untouched. */
+  void removeFromContinue(String account,Entry entry){
+    recent(account); // First persist any capacity evictions, so older titles cannot backfill.
+    preferences.edit().putLong(key(account,"hidden:"+group(entry.item)),nextTime()).commit();
+  }
 
   static final class Entry {
     final Catalog.Item item;
@@ -98,22 +107,44 @@ final class PlaybackHistory {
 
   List<Entry> recent(String account){return recent(account,Kind.ALL);}
   List<Entry> recent(String account,Kind kind){
+    List<Entry> recent=new ArrayList<>();Set<String> groups=new HashSet<>();int movies=0,series=0;
+    SharedPreferences.Editor evictions=preferences.edit();boolean changed=false;
+    for(Entry entry:allEntries(account)){
+      String group=group(entry.item);if(!groups.add(group))continue;
+      String hidden=key(account,"hidden:"+group);
+      if(entry.updated<=preferences.getLong(hidden,0))continue;
+      boolean movie=entry.item.id.startsWith("movie");
+      if((movie?movies:series)>=CONTINUE_LIMIT){evictions.putLong(hidden,entry.updated);changed=true;continue;}
+      if(movie)movies++;else series++;
+      if(kind==Kind.ALL||movie&&kind==Kind.MOVIES||!movie&&kind==Kind.SERIES)recent.add(entry);
+    }
+    if(changed)evictions.commit();
+    return recent;
+  }
+
+  /** Episode selection must still see the last chapter of a hidden or evicted series. */
+  Entry lastSeries(String account,String seriesId){
+    if(seriesId.isEmpty())return null;
+    for(Entry entry:allEntries(account))if(seriesId.equals(entry.item.seriesId))return entry;
+    return null;
+  }
+
+  private List<Entry> allEntries(String account){
     List<Entry> entries=new ArrayList<>();String accountKey=key(account,"history-account");
     for(java.util.Map.Entry<String,?> stored:preferences.getAll().entrySet()){
       if(!stored.getKey().endsWith(".metadata")||!(stored.getValue() instanceof String))continue;
       try{
         JSONObject data=new JSONObject((String)stored.getValue());if(!accountKey.equals(data.optString("account")))continue;
         String id=data.getString("id"),k=key(account,id);long updated=preferences.getLong(k+".updated",0);
-        if(kind==Kind.MOVIES&&!id.startsWith("movie")||kind==Kind.SERIES&&!id.startsWith("episode"))continue;
+        if(!id.startsWith("movie")&&!id.startsWith("episode"))continue;
         if(updated==0)continue;boolean done=completed(account,id);if(done&&id.startsWith("movie"))continue;
+        long position=position(account,id);if(position<=0&&!done)continue;
         Catalog.Item item=new Catalog.Item(id,data.getString("title"),data.getString("category"),"",data.optString("description"),"",data.optString("seriesId"),data.optString("seriesTitle"),data.optInt("season"),data.optInt("episode"));
-        entries.add(new Entry(item,data.optString("extension","mp4"),position(account,id),preferences.getLong(k+".duration",0),updated,done));
+        entries.add(new Entry(item,data.optString("extension","mp4"),position,preferences.getLong(k+".duration",0),updated,done));
       }catch(Exception ignored){ /* Skip an unreadable entry; other bookmarks remain available. */ }
     }
     entries.sort((a,b)->Long.compare(b.updated,a.updated));
-    List<Entry> recent=new ArrayList<>();Set<String> groups=new HashSet<>();
-    for(Entry entry:entries){String group=entry.item.seriesId.isEmpty()?entry.item.id:entry.item.seriesId;if(groups.add(group))recent.add(entry);if(recent.size()==100)break;}
-    return recent;
+    return entries;
   }
 
   private long nextTime(){long time=Math.max(System.currentTimeMillis(),preferences.getLong("clock",0)+1);preferences.edit().putLong("clock",time).apply();return time;}

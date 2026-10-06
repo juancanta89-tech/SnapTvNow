@@ -98,6 +98,7 @@ public class MainActivity extends Activity {
   private Runnable searchDebounce;
   private SearchInput searchInput;
   private PlaybackHistory.Kind continueKind=PlaybackHistory.Kind.ALL;
+  private String continueFocusId="";
   private final java.util.concurrent.ExecutorService searchExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
   private AlertDialog trackDialog;
   private TrackSelectionParameters resumeTrackParameters;
@@ -395,19 +396,23 @@ public class MainActivity extends Activity {
     gap(body,12);body.addView(text(client==null?"Vista de demostración. Conecta una línea para consultar su catálogo.":"Explora las categorías de tu línea para ver canales y títulos disponibles.",13,MUTED,false));
   }
   private void continueWatching(boolean preview){
-    title("Continuar viendo");
+    if(preview||!television())title("Continuar viendo");
     if(!preview){
-      LinearLayout filters=new LinearLayout(this);body.addView(filters);String[] names={"Todo","Películas","Series"};PlaybackHistory.Kind[] kinds=PlaybackHistory.Kind.values();
-      for(int index=0;index<kinds.length;index++){PlaybackHistory.Kind kind=kinds[index];TextView tab=action(names[index],()->{continueKind=kind;render();});if(kind==continueKind){tab.setTextColor(NAVY);tab.setBackground(gradient(CYAN,0xff12a9c6,12));}filters.addView(tab,new LinearLayout.LayoutParams(0,d(44),1));}gap(body,10);
+      List<PlaybackHistory.Entry> all=playbackHistory.recent(playbackAccount());int movies=0;for(PlaybackHistory.Entry entry:all)if(entry.item.id.startsWith("movie"))movies++;
+      LinearLayout filters=new LinearLayout(this);body.addView(filters);String[] names={"Todo · "+all.size(),"Películas · "+movies,"Series · "+(all.size()-movies)};PlaybackHistory.Kind[] kinds=PlaybackHistory.Kind.values();
+      for(int index=0;index<kinds.length;index++){
+        PlaybackHistory.Kind kind=kinds[index];boolean active=kind==continueKind;TextView tab=action(names[index],()->{continueKind=kind;continueFocusId="";render();});tab.setTextSize(13);
+        tab.setTextColor(active?NAVY:WHITE);tab.setBackground(active?gradient(CYAN,0xff12a9c6,12):shape(PANEL,12));
+        tab.setOnFocusChangeListener((v,focus)->{tab.setTextColor(active||focus?NAVY:WHITE);tab.setBackground(active||focus?gradient(CYAN,0xff12a9c6,12):shape(PANEL,12));});
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,d(44),1);p.setMargins(0,0,d(4),0);filters.addView(tab,p);
+      }gap(body,10);
     }
     List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount(),preview?PlaybackHistory.Kind.ALL:continueKind);
+    if(!preview){String capacity=continueKind==PlaybackHistory.Kind.ALL?entries.size()+" de 16 títulos":entries.size()+" de 8 "+(continueKind==PlaybackHistory.Kind.MOVIES?"películas":"series");body.addView(text(capacity,12,MUTED,false));gap(body,8);}
     if(entries.isEmpty())body.addView(text("Aquí aparecerán las películas y el último capítulo que dejes pendiente en este dispositivo.",14,MUTED,false));
-    int count=preview?Math.min(4,entries.size()):entries.size();
-    for(int index=0;index<count;index++){
-      PlaybackHistory.Entry entry=entries.get(index);
-      body.addView(new ContinueWatchingCard(this,entry,()->resumeEntry(entry)),new LinearLayout.LayoutParams(-1,-2));gap(body,8);
-    }
+    appendContinueEntries(preview?entries.subList(0,Math.min(4,entries.size())):entries,!preview&&television());
     if(preview){body.addView(action("Ver todo · Continuar viendo",()->{continueKind=PlaybackHistory.Kind.ALL;section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));}
+    else{gap(body,8);String note=continueKind==PlaybackHistory.Kind.ALL?"Máximo 8 películas y 8 series. Sale el título menos reciente del mismo tipo.":continueKind==PlaybackHistory.Kind.MOVIES?"Al agregar la 9.ª película, sale la menos reciente.":"Al agregar la 9.ª serie, sale la menos reciente.";body.addView(text(note,12,MUTED,false));}
   }
   private void continueSectionPreview(){
     if(!section.equals("Películas")&&!section.equals("Series"))return;
@@ -416,8 +421,28 @@ public class MainActivity extends Activity {
     List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount(),kind);
     title("Continuar "+section.toLowerCase(Locale.ROOT));
     if(entries.isEmpty())body.addView(text("Los títulos que dejes pendientes aparecerán aquí.",14,MUTED,false));
-    for(int index=0;index<Math.min(2,entries.size());index++){PlaybackHistory.Entry entry=entries.get(index);body.addView(new ContinueWatchingCard(this,entry,()->resumeEntry(entry)),new LinearLayout.LayoutParams(-1,-2));gap(body,8);}
+    appendContinueEntries(entries.subList(0,Math.min(2,entries.size())),false);
     body.addView(action("Ver todo · Continuar "+section.toLowerCase(Locale.ROOT),()->{continueKind=kind;section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));gap(body,18);
+  }
+  private void appendContinueEntries(List<PlaybackHistory.Entry> entries,boolean tv){
+    if(entries.isEmpty())return;
+    ContinueWatchingView view=new ContinueWatchingView(this,entries,tv,continueFocusId,this::resumeEntry,this::removeContinueEntry,this::bindContinueCover);
+    body.addView(view,new LinearLayout.LayoutParams(-1,-2));
+    if(tv)initialFocus=view.initialFocus();
+  }
+  private void bindContinueCover(ImageView image,PlaybackHistory.Entry entry){
+    Catalog.Item known=seen.get(entry.item.id);if((known==null||known.artwork.isEmpty())&&!entry.item.seriesId.isEmpty())known=seen.get(entry.item.seriesId);
+    Artwork.intoHistory(image,PlaybackHistory.artworkKey(playbackAccount(),entry.item),known==null?entry.item.artwork:known.artwork);
+  }
+  private void removeContinueEntry(PlaybackHistory.Entry entry){
+    List<PlaybackHistory.Entry> before=playbackHistory.recent(playbackAccount(),continueKind);int index=0;
+    for(int i=0;i<before.size();i++)if(before.get(i).item.id.equals(entry.item.id)){index=i;break;}
+    int scroll=body.getParent() instanceof ScrollView?((ScrollView)body.getParent()).getScrollY():0;
+    playbackHistory.removeFromContinue(playbackAccount(),entry);
+    List<PlaybackHistory.Entry> after=playbackHistory.recent(playbackAccount(),continueKind);
+    continueFocusId=after.isEmpty()?"":after.get(Math.min(index,after.size()-1)).item.id;
+    Toast.makeText(this,"Quitado de Continuar viendo. Conserva tu progreso.",Toast.LENGTH_SHORT).show();render();
+    if(!television()&&body.getParent() instanceof ScrollView){ScrollView target=(ScrollView)body.getParent();target.post(()->target.scrollTo(0,scroll));}
   }
   private void resumeEntry(PlaybackHistory.Entry entry){
     if(client==null){Toast.makeText(this,"Conecta tu línea para continuar",Toast.LENGTH_LONG).show();return;}
@@ -727,7 +752,7 @@ public class MainActivity extends Activity {
       }
       else unavailable(stage,item,null);
     }});
-    if(vod){playbackHistory.remember(playbackAccount(),item);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
+    if(vod){playbackHistory.remember(playbackAccount(),item);Artwork.rememberHistory(getApplicationContext(),PlaybackHistory.artworkKey(playbackAccount(),item),item.artwork);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
     else{video.setMediaItem(MediaItem.fromUri(item.url));video.setPlayWhenReady(!lifecyclePaused);video.prepare();}
     resumePosition=-1;resumePaused=false;
     if(!vod){View tapLayer=new View(this);stage.addView(tapLayer,new FrameLayout.LayoutParams(-1,-1));tapLayer.setOnClickListener(v->{if(playerControls!=null&&playerControls.getVisibility()==View.VISIBLE)playerControls.setVisibility(View.GONE);else showPlayerControls();});}
