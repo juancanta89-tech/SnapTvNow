@@ -30,6 +30,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.C;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -87,6 +89,17 @@ public class MainActivity extends Activity {
   private long resumePosition=-1;
   private boolean resumePaused;
   private View initialFocus;
+  private CatalogSearch.Scope searchScope=CatalogSearch.Scope.MOVIES;
+  private String searchOrigin="Inicio";
+  private CatalogSearch searchIndex;
+  private XtreamClient searchClient;
+  private volatile int searchGeneration;
+  private int searchScreenGeneration;
+  private Runnable searchDebounce;
+  private int searchLimit=40;
+  private final java.util.concurrent.ExecutorService searchExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
+  private AlertDialog trackDialog;
+  private TrackSelectionParameters resumeTrackParameters;
   private int d(float n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
   private GradientDrawable shape(int c,int radius){GradientDrawable g=new GradientDrawable();g.setColor(c);g.setCornerRadius(d(radius));return g;}
   private GradientDrawable gradient(int first,int second,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{first,second});g.setCornerRadius(d(radius));return g;}
@@ -132,6 +145,8 @@ public class MainActivity extends Activity {
     }).start();
   }
   private void render(){
+    searchGeneration++;searchScreenGeneration++;
+    if(searchDebounce!=null){controlHandler.removeCallbacks(searchDebounce);searchDebounce=null;}
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}adView=null;
     findingOnline=false;releaseVideo();playing=false;wide=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);getWindow().getDecorView().setSystemUiVisibility(0);
@@ -153,7 +168,7 @@ public class MainActivity extends Activity {
     }else{
       LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(d(18),d(10),d(12),d(6));root.addView(header,new LinearLayout.LayoutParams(-1,d(59)));
       brand(header,22);View spacer=new View(this);header.addView(spacer,new LinearLayout.LayoutParams(0,1,1));
-      TextView find=action("⌕",()->{section="Buscar";render();});header.addView(find,new LinearLayout.LayoutParams(d(42),d(42)));
+      TextView find=action("⌕",this::openSearch);header.addView(find,new LinearLayout.LayoutParams(d(42),d(42)));
       TextView profile=action("◎",()->{section="Cuenta";render();});LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(d(42),d(42));pp.leftMargin=d(8);header.addView(profile,pp);
       LinearLayout main=col();main.setPadding(d(14),d(6),d(14),d(4));root.addView(main,new LinearLayout.LayoutParams(-1,0,1));content(main);
       mobileNavigation();
@@ -171,12 +186,13 @@ public class MainActivity extends Activity {
       LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);bar.addView(button,lp);
     }
   }
-  private void releaseVideo(){if(vodSession!=null){vodSession.close();vodSession=null;}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(recoveryTimeout!=null){controlHandler.removeCallbacks(recoveryTimeout);recoveryTimeout=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
+  private void releaseVideo(){if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(recoveryTimeout!=null){controlHandler.removeCallbacks(recoveryTimeout);recoveryTimeout=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
   private void brand(LinearLayout holder,int size){TextView t=text("SNAPTVNOW",size,CYAN,true);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t);}
   private void navigation(LinearLayout holder,boolean horizontal){for(int i=0;i<SECTIONS.length;i++){String s=SECTIONS[i],label=ICONS[i]+"  "+s;TextView t=action(label,()->{section=s;render();});t.setTextSize(horizontal?13:14);t.setGravity(horizontal?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(s.equals(section)){t.setBackground(gradient(0xff106580,0xff0b354e,12));t.setTextColor(CYAN);}LinearLayout.LayoutParams lp=horizontal?new LinearLayout.LayoutParams(d(105),d(46)):new LinearLayout.LayoutParams(-1,d(49));lp.setMargins(0,0,horizontal?d(5):0,horizontal?0:d(4));holder.addView(t,lp);if(s.equals(section))initialFocus=t;}}
   private void content(LinearLayout holder){
     if(wide){LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);holder.addView(top);
       TextView page=text(section,22,WHITE,true);top.addView(page,new LinearLayout.LayoutParams(0,d(40),1));
+      top.addView(action("⌕",this::openSearch),new LinearLayout.LayoutParams(d(48),d(40)));
       TextView accountButton=action("◎",()->{section="Cuenta";render();});top.addView(accountButton,new LinearLayout.LayoutParams(d(48),d(40)));gap(holder,8);}
     ScrollView sc=new ScrollView(this);sc.setFillViewport(true);holder.addView(sc,new LinearLayout.LayoutParams(-1,0,1));body=col();sc.addView(body);
     switch(section){case "Inicio":home();break;case "Explorar":explore();break;case "PPV HOY":sports();break;
@@ -336,7 +352,7 @@ public class MainActivity extends Activity {
       AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);
       final XtreamClient.Group newGroup=matched;
       runOnUiThread(()->{client=connected;items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
-        activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
+        searchIndex=null;searchClient=null;activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
         if(refreshButton!=null){refreshButton.setText("100% actualizado");TextView finished=refreshButton;controlHandler.postDelayed(()->{if(refreshButton==finished)finished.setText("Actualizar contenido");},2200);}
       });
     }catch(Exception e){runOnUiThread(()->{refreshing=false;if(refreshButton!=null)refreshButton.setText("Actualizar contenido");new AlertDialog.Builder(this).setTitle("No se pudo actualizar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
@@ -497,7 +513,89 @@ public class MainActivity extends Activity {
   private String[] episodeNames(List<Catalog.Item> episodes){String[] names=new String[episodes.size()];for(int k=0;k<names.length;k++)names[k]=episodes.get(k).title;return names;}
   private void openItem(Catalog.Item i){if(client!=null&&i.id.startsWith("series")){new Thread(()->{try{List<Catalog.Item> episodes=client.episodes(i);runOnUiThread(()->{if(episodes.isEmpty()){Toast.makeText(this,"Sin episodios disponibles",Toast.LENGTH_LONG).show();return;}new AlertDialog.Builder(this).setTitle(i.title).setItems(episodeNames(episodes),(dialog,index)->play(episodes.get(index))).show();});}catch(Exception ex){runOnUiThread(()->Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show());}}).start();}else play(i);}
   private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{if(!favorites.add(i.id))favorites.remove(i.id);prefs.edit().putBoolean("fav_"+i.id,favorites.contains(i.id)).apply();render();}).setNegativeButton("Cerrar",null).show();}
-  private void search(){title("Buscar contenido");EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Buscar en la categoría cargada");input.setText(query);input.setTextColor(WHITE);input.setHintTextColor(MUTED);body.addView(input);gap(body,7);body.addView(action("Buscar",()->{query=input.getText().toString().trim();render();}),new LinearLayout.LayoutParams(d(150),d(46)));gap(body,18);List<Catalog.Item> matches=new ArrayList<>();for(Catalog.Item i:items)if(query.isEmpty()||i.title.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT)))matches.add(i);if(matches.isEmpty())body.addView(text("Sin resultados.",15,MUTED,false));else catalogRow(matches);}
+  private void openSearch(){
+    if(!section.equals("Buscar")){searchOrigin=section;searchScope=CatalogSearch.Scope.forSection(section,searchScope);query="";searchLimit=40;}
+    section="Buscar";render();
+  }
+  private void search(){
+    title("Buscar en todas las carpetas");
+    LinearLayout scopes=new LinearLayout(this);body.addView(scopes);
+    for(CatalogSearch.Scope scope:CatalogSearch.Scope.values()){
+      TextView tab=action(scope==CatalogSearch.Scope.CHANNELS?"Canales":scope.section,()->{searchScope=scope;searchLimit=40;render();});
+      if(scope==searchScope){tab.setTextColor(NAVY);tab.setBackground(gradient(CYAN,0xff12a9c6,12));}
+      scopes.addView(tab,new LinearLayout.LayoutParams(0,d(46),1));
+    }
+    gap(body,10);
+    EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Buscar "+(searchScope==CatalogSearch.Scope.CHANNELS?"canales":searchScope.section.toLowerCase(Locale.ROOT))+" en todas las carpetas");
+    input.setTextColor(WHITE);input.setHintTextColor(MUTED);input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);input.setText(query);body.addView(input);
+    LinearLayout buttons=new LinearLayout(this);body.addView(buttons);
+    TextView status=text("",14,MUTED,false);body.addView(status);gap(body,12);
+    LinearLayout results=col();body.addView(results);
+    final int page=searchScreenGeneration;
+    Runnable submit=()->submitSearch(input.getText().toString(),status,results,page);
+    buttons.addView(action("Buscar",submit),new LinearLayout.LayoutParams(0,d(44),1));
+    buttons.addView(action("Volver",()->{section=searchOrigin;render();}),new LinearLayout.LayoutParams(0,d(44),1));
+    input.setOnEditorActionListener((view,action,event)->{submit.run();return true;});
+    input.addTextChangedListener(new android.text.TextWatcher(){
+      public void beforeTextChanged(CharSequence t,int start,int count,int after){}
+      public void onTextChanged(CharSequence t,int start,int before,int count){
+        query=t.toString();searchLimit=40;searchGeneration++;
+        if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);
+        searchDebounce=submit;controlHandler.postDelayed(searchDebounce,300);
+      }
+      public void afterTextChanged(android.text.Editable text){}
+    });
+    submit.run();
+    if(wide)input.requestFocus();
+  }
+  private void submitSearch(String text,TextView status,LinearLayout results,int page){
+    if(page!=searchScreenGeneration||isFinishing()||isDestroyed()||!section.equals("Buscar")||results.getParent()==null)return;
+    if(searchDebounce!=null){controlHandler.removeCallbacks(searchDebounce);searchDebounce=null;}
+    query=text.trim();int request=++searchGeneration;
+    results.removeAllViews();
+    if(query.isEmpty()){status.setText("Escribe el nombre del contenido. Se buscará dentro de todas las carpetas de esta sección.");return;}
+    final XtreamClient session=client;final CatalogSearch.Scope scope=searchScope;final String searched=query;
+    if(searchIndex==null||searchClient!=session){
+      searchClient=session;
+      searchIndex=new CatalogSearch(type->session==null?Catalog.demo():session.loadAll(type));
+    }
+    final CatalogSearch index=searchIndex;
+    status.setText("Buscando en todas las carpetas de "+(scope==CatalogSearch.Scope.CHANNELS?"Canales":scope.section)+"…");
+    searchExecutor.execute(()->{
+      if(request!=searchGeneration)return;
+      try{
+        List<Catalog.Item> all=index.all(scope);
+        List<Catalog.Item> matches=CatalogSearch.filter(all,scope,searched);
+        runOnUiThread(()->{
+          if(request!=searchGeneration||client!=session||!section.equals("Buscar")||isFinishing()||isDestroyed())return;
+          status.setText(matches.isEmpty()?"Sin resultados en todas las carpetas de esta sección.":matches.size()+" resultados · todas las carpetas de "+(scope==CatalogSearch.Scope.CHANNELS?"Canales":scope.section));
+          showSearchResults(results,matches,all,scope,status);
+        });
+      }catch(Exception error){runOnUiThread(()->{
+        if(request!=searchGeneration||!section.equals("Buscar")||client!=session||isFinishing()||isDestroyed())return;
+        status.setText("No se pudo cargar la búsqueda completa. Pulsa Buscar para reintentar.");
+      });}
+    });
+  }
+  private void showSearchResults(LinearLayout results,List<Catalog.Item> matches,List<Catalog.Item> all,CatalogSearch.Scope scope,TextView status){
+    results.removeAllViews();int columns=wide?4:2;int limit=Math.min(searchLimit,matches.size());
+    for(int start=0;start<limit;start+=columns){
+      LinearLayout row=new LinearLayout(this);results.addView(row);
+      for(int column=0;column<columns;column++){
+        int position=start+column;
+        LinearLayout cell=col();LinearLayout.LayoutParams cellParams=new LinearLayout.LayoutParams(0,-2,1);cellParams.setMargins(d(3),0,d(3),d(10));row.addView(cell,cellParams);
+        if(position>=limit)continue;
+        Catalog.Item item=matches.get(position);seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);
+        FrameLayout card=poster(item,PANEL,scope==CatalogSearch.Scope.CHANNELS);cell.addView(card,new LinearLayout.LayoutParams(-1,d(scope==CatalogSearch.Scope.CHANNELS?158:207)));
+        card.setOnClickListener(v->{
+          if(scope==CatalogSearch.Scope.CHANNELS){items=new ArrayList<>();for(Catalog.Item candidate:all)if(candidate.description.equals(item.description))items.add(candidate);loadedSection="TV en vivo";activeGroup=null;activeGroupSection="";}
+          openItem(item);
+        });
+        TextView folder=text(item.description,11,MUTED,false);folder.setMaxLines(1);folder.setEllipsize(TextUtils.TruncateAt.END);cell.addView(folder);
+      }
+    }
+    if(limit<matches.size())results.addView(action("Ver más resultados ("+limit+" de "+matches.size()+")",()->{searchLimit+=40;showSearchResults(results,matches,all,scope,status);}),new LinearLayout.LayoutParams(-1,d(46)));
+  }
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
   private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text("Seguridad: el proveedor utiliza HTTP sin cifrado; las credenciales pueden ser visibles en la red.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{SessionStore.clear(this);logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
   private void devices(){title("Dispositivos compatibles");body.addView(text("Amazon Fire TV · Firestick · Android TV · TV Box · Celular Android",18,WHITE,false));gap(body,12);body.addView(text("Usa el control remoto en TV o toca las tarjetas en tu celular.",15,MUTED,false));}
@@ -591,6 +689,8 @@ public class MainActivity extends Activity {
     video=new ExoPlayer.Builder(this).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();playerView.setPlayer(video);
     final ExoPlayer activePlayer=video;
     final PlayerView activeView=playerView;
+    if(sameSession && resumeTrackParameters!=null)video.setTrackSelectionParameters(resumeTrackParameters);
+    resumeTrackParameters=null;
     video.addListener(new Player.Listener(){@Override public void onPlaybackStateChanged(int state){
       if(state!=Player.STATE_READY||currentItem!=item||video!=activePlayer||!playing)return;
       channelHadSignal=true;
@@ -620,8 +720,13 @@ public class MainActivity extends Activity {
     TextView label=text("SNAPTVNOW  ·  "+item.title,wide?18:15,WHITE,true);label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams labelParams=new LinearLayout.LayoutParams(0,-1,1);labelParams.leftMargin=d(10);top.addView(label,labelParams);
     TextView fav=action("♡",()->{toggleFavorite(item);showPlayerControls();});top.addView(fav,new LinearLayout.LayoutParams(d(48),d(45)));
     if(vod){
-      TextView restart=action("Desde inicio",()->{if(video==activePlayer){playbackHistory.complete(playbackAccount(),item.id);video.seekTo(0);video.play();showPlayerControls();}});restart.setTextSize(12);top.addView(restart,new LinearLayout.LayoutParams(d(95),d(45)));
-      top.addView(action("⛶",()->{if(playerView==activeView){int mode=playerView.getResizeMode();playerView.setResizeMode(mode==AspectRatioFrameLayout.RESIZE_MODE_FIT?AspectRatioFrameLayout.RESIZE_MODE_ZOOM:AspectRatioFrameLayout.RESIZE_MODE_FIT);showPlayerControls();}}),new LinearLayout.LayoutParams(d(48),d(45)));
+      HorizontalScrollView toolbar=new HorizontalScrollView(this);toolbar.setHorizontalScrollBarEnabled(false);
+      FrameLayout.LayoutParams toolbarParams=new FrameLayout.LayoutParams(-1,d(48),Gravity.TOP);toolbarParams.topMargin=d(65);playerControls.addView(toolbar,toolbarParams);
+      LinearLayout options=new LinearLayout(this);options.setPadding(d(12),0,d(12),0);options.setBackgroundColor(0xc0071729);toolbar.addView(options);
+      options.addView(action("Audio",()->openTrackOptions(activePlayer,C.TRACK_TYPE_AUDIO)),new LinearLayout.LayoutParams(d(90),d(45)));
+      options.addView(action("Subtítulos",()->openTrackOptions(activePlayer,C.TRACK_TYPE_TEXT)),new LinearLayout.LayoutParams(d(110),d(45)));
+      TextView restart=action("Desde inicio",()->{if(video==activePlayer){playbackHistory.complete(playbackAccount(),item.id);video.seekTo(0);video.play();showPlayerControls();}});restart.setTextSize(12);options.addView(restart,new LinearLayout.LayoutParams(d(95),d(45)));
+      options.addView(action("⛶",()->{if(playerView==activeView){int mode=playerView.getResizeMode();playerView.setResizeMode(mode==AspectRatioFrameLayout.RESIZE_MODE_FIT?AspectRatioFrameLayout.RESIZE_MODE_ZOOM:AspectRatioFrameLayout.RESIZE_MODE_FIT);showPlayerControls();}}),new LinearLayout.LayoutParams(d(48),d(45)));
     }else{
     LinearLayout bottom=new LinearLayout(this);bottom.setGravity(Gravity.CENTER);bottom.setPadding(d(8),d(8),d(8),d(8));bottom.setBackground(gradient(0x33071729,0xc6071729,0));
     playerControls.addView(bottom,new FrameLayout.LayoutParams(-1,d(76),Gravity.BOTTOM));
@@ -639,11 +744,18 @@ public class MainActivity extends Activity {
     }
     if(vod)playerView.requestFocus();else back.requestFocus();showPlayerControls();
   }
+  private void openTrackOptions(Player player,int type){
+    if(video!=player)return;
+    if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();}
+    trackDialog=PlayerTrackOptions.show(this,player,type,()->{trackDialog=null;if(video==player)showPlayerControls();});
+  }
+  @Override protected void onDestroy(){searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();super.onDestroy();}
   private String playbackAccount(){return client!=null?client.username():"demo";}
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
   @Override public boolean dispatchKeyEvent(KeyEvent event){if(playing&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}
   @Override public boolean onKeyDown(int code,KeyEvent event){if(playing&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_DPAD_UP||code==KeyEvent.KEYCODE_DPAD_DOWN)){showPlayerControls();}return super.onKeyDown(code,event);}
-  private void rememberPlayback(){if(playing&&video!=null){resumePosition=vodSession!=null?vodSession.lifecyclePosition():Math.max(0,video.getCurrentPosition());resumePaused=!video.getPlayWhenReady()||video.getPlaybackState()==Player.STATE_ENDED;}}
+  private void rememberPlayback(){
+    if(video!=null)resumeTrackParameters=video.getTrackSelectionParameters();if(playing&&video!=null){resumePosition=vodSession!=null?vodSession.lifecyclePosition():Math.max(0,video.getCurrentPosition());resumePaused=!video.getPlayWhenReady()||video.getPlaybackState()==Player.STATE_ENDED;}}
   @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(playing&&currentItem!=null){rememberPlayback();play(currentItem);}else render();}
   @Override protected void onStart(){super.onStart();if(playing&&video==null&&currentItem!=null)play(currentItem);}
   @Override protected void onStop(){rememberPlayback();releaseVideo();super.onStop();}
