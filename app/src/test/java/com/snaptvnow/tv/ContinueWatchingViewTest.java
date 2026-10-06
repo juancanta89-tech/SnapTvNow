@@ -29,7 +29,9 @@ public class ContinueWatchingViewTest {
   private void idle(){Shadows.shadowOf(Looper.getMainLooper()).idle();}
   private ContinueWatchingView show(boolean tv,String preferred){
     ContinueWatchingView view=new ContinueWatchingView(activity,history.recent("alice"),tv,preferred,entry->{resumes++;resumed=entry.item.id;},entry->{removals++;removed=entry.item.id;history.removeFromContinue("alice",entry);},(image,entry)->{});
-    activity.setContentView(view);view.measure(View.MeasureSpec.makeMeasureSpec(720,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));view.layout(0,0,720,view.getMeasuredHeight());idle();return view;
+    LinearLayout holder=new LinearLayout(activity);holder.setOrientation(LinearLayout.VERTICAL);holder.addView(view,new LinearLayout.LayoutParams(-1,-2));activity.setContentView(holder);idle();
+    int width=Math.round(720*activity.getResources().getDisplayMetrics().density);
+    holder.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));holder.layout(0,0,width,holder.getMeasuredHeight());return view;
   }
   @Test public void phoneMenuRemovesOnlyThatMovieAndNeverStartsPlayback(){
     ContinueWatchingView view=show(false,"");assertEquals(8,view.getChildCount());ContinueWatchingCard card=(ContinueWatchingCard)view.getChildAt(2);
