@@ -68,6 +68,20 @@ final class PlaybackHistory {
 
   boolean completed(String account,String contentId){return preferences.getBoolean(key(account,contentId)+".completed",false);}
 
+  /** Older builds stored movie positions without titles. Add titles when their catalog is loaded. */
+  void rememberBookmarks(String account,List<Catalog.Item> items){
+    for(Catalog.Item item:items){
+      if(!item.id.startsWith("movie"))continue;
+      String key=key(account,item.id);
+      long position=preferences.getLong(key+".position",0),duration=preferences.getLong(key+".duration",0);
+      if(position<=0||duration>0&&position>=duration||preferences.contains(key+".metadata"))continue;
+      remember(account,item);
+      if(preferences.contains(key+".metadata")&&!preferences.contains(key+".updated"))preferences.edit().putLong(key+".updated",1).apply();
+    }
+  }
+
+  enum Kind { ALL, MOVIES, SERIES }
+
   static final class Entry {
     final Catalog.Item item;
     final String extension;
@@ -82,13 +96,15 @@ final class PlaybackHistory {
     }
   }
 
-  List<Entry> recent(String account){
+  List<Entry> recent(String account){return recent(account,Kind.ALL);}
+  List<Entry> recent(String account,Kind kind){
     List<Entry> entries=new ArrayList<>();String accountKey=key(account,"history-account");
     for(java.util.Map.Entry<String,?> stored:preferences.getAll().entrySet()){
       if(!stored.getKey().endsWith(".metadata")||!(stored.getValue() instanceof String))continue;
       try{
         JSONObject data=new JSONObject((String)stored.getValue());if(!accountKey.equals(data.optString("account")))continue;
         String id=data.getString("id"),k=key(account,id);long updated=preferences.getLong(k+".updated",0);
+        if(kind==Kind.MOVIES&&!id.startsWith("movie")||kind==Kind.SERIES&&!id.startsWith("episode"))continue;
         if(updated==0)continue;boolean done=completed(account,id);if(done&&id.startsWith("movie"))continue;
         Catalog.Item item=new Catalog.Item(id,data.getString("title"),data.getString("category"),"",data.optString("description"),"",data.optString("seriesId"),data.optString("seriesTitle"),data.optInt("season"),data.optInt("episode"));
         entries.add(new Entry(item,data.optString("extension","mp4"),position(account,id),preferences.getLong(k+".duration",0),updated,done));
@@ -108,9 +124,9 @@ final class PlaybackHistory {
     try {
       byte[] bytes = MessageDigest.getInstance("SHA-256")
           .digest((account + "\u0000" + contentId).getBytes(StandardCharsets.UTF_8));
-      StringBuilder result = new StringBuilder(64);
-      for (byte b : bytes) result.append(String.format(java.util.Locale.ROOT, "%02x", b & 0xff));
-      return result.toString();
+      char[] hex="0123456789abcdef".toCharArray(),result=new char[64];
+      for(int i=0;i<bytes.length;i++){int value=bytes[i]&0xff;result[i*2]=hex[value>>>4];result[i*2+1]=hex[value&15];}
+      return new String(result);
     } catch (NoSuchAlgorithmException impossible) {
       throw new IllegalStateException(impossible);
     }
