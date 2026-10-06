@@ -47,3 +47,32 @@ Firma Samsung, prueba visual, reproducción real, controles y suspensión en Sam
 Referencias oficiales:
 - https://webostv.developer.lge.com/develop/tools/cli-installation
 - https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/command-line-interface.html
+
+## Preparación adicional del 6 de octubre de 2026
+
+Se añadieron posición de VOD guardada por título/episodio, borrado al finalizar y al cerrar sesión; filtros de búsqueda Todo/TV/Películas/Series; controles de audio/subtítulos que solo seleccionan las pistas expuestas por el dispositivo. Samsung usa las pistas de AVPlay; LG usa audioTracks/textTracks si su motor las expone. La disponibilidad real depende de contenedor, protocolo, códec y modelo.
+
+No se afirma que solo falte un PC para producción. También falta disponer de un gateway HTTPS real compatible con el contrato siguiente, una cuenta de prueba y acceso a televisores. Estos recursos no se incluyen ni se pueden inventar.
+
+### Contrato del panel para acceso persistente
+
+La app en modo real necesita configurar `gatewayUrl` en `src/config.js` y permitir ese dominio en el manifiesto Samsung. El gateway debe implementar POST con JSON:
+
+- `/session`: recibe `{username,password}`, valida la línea y devuelve `{active:true,token}`. La contraseña se usa para autenticar, no se almacena en el navegador.
+- `/session/validate`: recibe autorización Bearer y devuelve `{active:true}` o rechaza la sesión.
+- `/session/revoke`: invalida el token.
+- `/catalog`: recibe `{section}` y devuelve `{items:[{id,title,section,url,seriesId,description}]}`. `seriesId` se usa para series, `url` HTTPS para vídeo.
+- `/episodes`: recibe `{seriesId}` y devuelve episodios en el mismo formato con `section:"Series"`.
+
+Las URL de vídeo deben ser tickets temporales HTTPS que no revelen credenciales del proveedor. El servicio debe autorizar cada petición, ocultar el servidor aguas arriba, permitir CORS requerido por los motores TV y limitar peticiones. No es suficiente reemplazar una URL HTTP por HTTPS sin servicio y certificado válidos.
+
+### Secuencia al disponer del PC
+
+1. Instalar herramientas oficiales Samsung/LG y guardar certificados fuera del repositorio.
+2. Conectar el PC y Samsung QN55Q60AAFXZA a la misma red; activar modo desarrollador y registrar DUID.
+3. Generar WGT firmado y probar primero la demo. Para LG, instalar el IPK mediante Developer Mode.
+4. Comprobar OK/flechas/Volver, favoritos, búsqueda, VOD/seek/reanudación, pistas, errores y suspensión.
+5. Integrar el gateway real y probar vencimiento, logout y recuperación de sesión.
+6. Solo después preparar fichas de tienda, privacidad, soporte, capturas y cuentas de revisión. No se ha enviado ninguna app a tiendas.
+
+Verificación de esta entrega: build/check correctos; 11 pruebas automatizadas aprobadas (reproductores simulados). IPK generado y reconocido por CLI LG 3.2.6. La descarga de Chromium falló por archivo incompleto; no se obtuvo una prueba visual ni reproducción real.
