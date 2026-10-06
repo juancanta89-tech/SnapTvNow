@@ -96,10 +96,11 @@ public class MainActivity extends Activity {
   private volatile int searchGeneration;
   private int searchScreenGeneration;
   private Runnable searchDebounce;
-  private int searchLimit=40;
   private final java.util.concurrent.ExecutorService searchExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
   private AlertDialog trackDialog;
   private TrackSelectionParameters resumeTrackParameters;
+  private boolean television(){return (getResources().getConfiguration().uiMode&Configuration.UI_MODE_TYPE_MASK)==Configuration.UI_MODE_TYPE_TELEVISION||getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK);}
+  private int catalogWindowWidth(){int width=getResources().getConfiguration().screenWidthDp;return width>0?width:Math.round(getResources().getDisplayMetrics().widthPixels/getResources().getDisplayMetrics().density);}
   private int d(float n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
   private GradientDrawable shape(int c,int radius){GradientDrawable g=new GradientDrawable();g.setColor(c);g.setCornerRadius(d(radius));return g;}
   private GradientDrawable gradient(int first,int second,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{first,second});g.setCornerRadius(d(radius));return g;}
@@ -148,7 +149,7 @@ public class MainActivity extends Activity {
     searchGeneration++;searchScreenGeneration++;
     if(searchDebounce!=null){controlHandler.removeCallbacks(searchDebounce);searchDebounce=null;}
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}adView=null;
-    findingOnline=false;releaseVideo();playing=false;wide=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
+    findingOnline=false;releaseVideo();playing=false;wide=television()||(!logged&&getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE);
     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);getWindow().getDecorView().setSystemUiVisibility(0);
     root=col();root.setBackgroundColor(NAVY);
     if(Build.VERSION.SDK_INT>=30){
@@ -440,7 +441,7 @@ public class MainActivity extends Activity {
     });}}).start();
   }
   private void categoryGrid(List<XtreamClient.Group> groups,String requested){
-    int columns=wide?5:2;
+    int columns=CatalogGridLayout.columns(television(),catalogWindowWidth());
     for(int start=0;start<groups.size();start+=columns){
       LinearLayout row=new LinearLayout(this);body.addView(row);
       for(int column=0;column<columns;column++){
@@ -451,7 +452,7 @@ public class MainActivity extends Activity {
           button.setTextSize(wide?13:14);
           button.setMaxLines(3);
           button.setEllipsize(TextUtils.TruncateAt.END);
-          LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,d(wide?96:90),1);
+          LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,d(wide?84:80),1);
           lp.setMargins(d(3),d(3),d(3),d(6));row.addView(button,lp);
         }else row.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));
       }
@@ -460,43 +461,12 @@ public class MainActivity extends Activity {
   private void loadGroup(String requested,XtreamClient.Group group){body.removeAllViews();title(group.name);body.addView(text("Cargando contenido…",15,MUTED,false));new Thread(()->{try{List<Catalog.Item> loaded=client.loadCategory(requested,group.id,group.name);runOnUiThread(()->{if(!section.equals(requested))return;items=loaded;for(Catalog.Item item:loaded){seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);}loadedSection=requested;activeGroup=group;activeGroupSection=requested;render();});}catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo cargar la categoría").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show());}}).start();}
   private void catalog(){title(section);if(client!=null&&!section.equals("Mi lista")){TextView choose=action("Cambiar categoría",()->{loadedSection="";render();});body.addView(choose,new LinearLayout.LayoutParams(d(190),d(44)));gap(body,12);}List<Catalog.Item> matches=new ArrayList<>();for(Catalog.Item i:items)if(i.category.equals(section)||section.equals("TV en vivo")&&(i.category.equals("Deportes")||i.category.equals("PPV HOY"))||section.equals("Mi lista")&&favorites.contains(i.id))matches.add(i);if(matches.isEmpty()){body.addView(text("Aún no hay títulos en esta sección.",16,MUTED,false));return;}body.addView(text(client==null?"Contenido de demostración · selecciona una tarjeta":"Contenido de tu línea · selecciona una tarjeta",14,MUTED,false));gap(body,12);if(section.equals("TV en vivo")||section.equals("PPV HOY"))catalogGrid(matches);else catalogRow(matches);}
   private void catalogGrid(List<Catalog.Item> list){
-    int columns=wide?3:2;int[] shades={0xff134e68,0xff554681,0xff78532f,0xff225d62};
-    for(int start=0;start<list.size();start+=columns){
-      LinearLayout row=new LinearLayout(this);body.addView(row);
-      for(int column=0;column<columns;column++){
-        int index=start+column;
-        if(index<list.size()){
-          Catalog.Item item=list.get(index);
-          FrameLayout card=poster(item,shades[index%shades.length],true);
-          LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,d(wide?164:158),1);
-          lp.setMargins(d(3),d(2),d(3),d(8));row.addView(card,lp);
-        }else row.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));
-      }
-    }
+    CatalogCardGrid grid=new CatalogCardGrid(this,list,television(),catalogWindowWidth(),item->poster(item,PANEL,item.id.startsWith("live")));
+    body.addView(grid,new LinearLayout.LayoutParams(-1,-2));
   }
-  private void catalogRow(List<Catalog.Item> list){
-    int[] shades={0xff134e68,0xff554681,0xff78532f,0xff225d62};
-    if(wide){
-      HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);body.addView(scroll);
-      LinearLayout row=new LinearLayout(this);scroll.addView(row);
-      for(int n=0;n<Math.min(list.size(),60);n++){
-        Catalog.Item item=list.get(n);boolean live=item.category.equals("TV en vivo")||item.category.equals("Deportes")||item.category.equals("PPV HOY");
-        FrameLayout card=poster(item,shades[n%shades.length],live);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(d(live?196:146),d(live?162:206));lp.rightMargin=d(10);row.addView(card,lp);
-      }
-    }else{
-      // A vertical grid leaves every title reachable with the normal page scroll.
-      for(int start=0;start<Math.min(list.size(),60);start+=2){
-        LinearLayout row=new LinearLayout(this);body.addView(row);
-        for(int n=start;n<Math.min(start+2,Math.min(list.size(),60));n++){
-          Catalog.Item item=list.get(n);boolean live=item.category.equals("TV en vivo")||item.category.equals("Deportes")||item.category.equals("PPV HOY");
-          FrameLayout card=poster(item,shades[n%shades.length],live);
-          LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,d(live?158:207),1);lp.setMargins(d(3),0,d(3),d(7));row.addView(card,lp);
-        }
-      }
-    }
-  }
+  private void catalogRow(List<Catalog.Item> list){catalogGrid(list);}
   private FrameLayout poster(Catalog.Item item,int shade,boolean live){
+      if(live)return new ChannelCard(this,item,favorites.contains(item.id),()->openItem(item),()->{toggleFavorite(item);if(section.equals("Mi lista"))render();},()->detail(item));
       FrameLayout card=new FrameLayout(this);card.setBackground(gradient(shade,PANEL,12));card.setClipToOutline(true);
       ImageView art=new ImageView(this);art.setScaleType(ImageView.ScaleType.CENTER_CROP);card.addView(art,new FrameLayout.LayoutParams(-1,-1));Artwork.into(art,item.artwork);
       LinearLayout caption=col();caption.setPadding(d(9),d(6),d(8),d(8));caption.setBackground(gradient(0x66071729,0xee071729,9));
@@ -514,14 +484,14 @@ public class MainActivity extends Activity {
   private void openItem(Catalog.Item i){if(client!=null&&i.id.startsWith("series")){new Thread(()->{try{List<Catalog.Item> episodes=client.episodes(i);runOnUiThread(()->{if(episodes.isEmpty()){Toast.makeText(this,"Sin episodios disponibles",Toast.LENGTH_LONG).show();return;}new AlertDialog.Builder(this).setTitle(i.title).setItems(episodeNames(episodes),(dialog,index)->play(episodes.get(index))).show();});}catch(Exception ex){runOnUiThread(()->Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show());}}).start();}else play(i);}
   private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{if(!favorites.add(i.id))favorites.remove(i.id);prefs.edit().putBoolean("fav_"+i.id,favorites.contains(i.id)).apply();render();}).setNegativeButton("Cerrar",null).show();}
   private void openSearch(){
-    if(!section.equals("Buscar")){searchOrigin=section;searchScope=CatalogSearch.Scope.forSection(section,searchScope);query="";searchLimit=40;}
+    if(!section.equals("Buscar")){searchOrigin=section;searchScope=CatalogSearch.Scope.forSection(section,searchScope);query="";}
     section="Buscar";render();
   }
   private void search(){
     title("Buscar en todas las carpetas");
     LinearLayout scopes=new LinearLayout(this);body.addView(scopes);
     for(CatalogSearch.Scope scope:CatalogSearch.Scope.values()){
-      TextView tab=action(scope==CatalogSearch.Scope.CHANNELS?"Canales":scope.section,()->{searchScope=scope;searchLimit=40;render();});
+      TextView tab=action(scope==CatalogSearch.Scope.CHANNELS?"Canales":scope.section,()->{searchScope=scope;render();});
       if(scope==searchScope){tab.setTextColor(NAVY);tab.setBackground(gradient(CYAN,0xff12a9c6,12));}
       scopes.addView(tab,new LinearLayout.LayoutParams(0,d(46),1));
     }
@@ -539,7 +509,7 @@ public class MainActivity extends Activity {
     input.addTextChangedListener(new android.text.TextWatcher(){
       public void beforeTextChanged(CharSequence t,int start,int count,int after){}
       public void onTextChanged(CharSequence t,int start,int before,int count){
-        query=t.toString();searchLimit=40;searchGeneration++;
+        query=t.toString();searchGeneration++;
         if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);
         searchDebounce=submit;controlHandler.postDelayed(searchDebounce,300);
       }
@@ -578,23 +548,19 @@ public class MainActivity extends Activity {
     });
   }
   private void showSearchResults(LinearLayout results,List<Catalog.Item> matches,List<Catalog.Item> all,CatalogSearch.Scope scope,TextView status){
-    results.removeAllViews();int columns=wide?4:2;int limit=Math.min(searchLimit,matches.size());
-    for(int start=0;start<limit;start+=columns){
-      LinearLayout row=new LinearLayout(this);results.addView(row);
-      for(int column=0;column<columns;column++){
-        int position=start+column;
-        LinearLayout cell=col();LinearLayout.LayoutParams cellParams=new LinearLayout.LayoutParams(0,-2,1);cellParams.setMargins(d(3),0,d(3),d(10));row.addView(cell,cellParams);
-        if(position>=limit)continue;
-        Catalog.Item item=matches.get(position);seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);
-        FrameLayout card=poster(item,PANEL,scope==CatalogSearch.Scope.CHANNELS);cell.addView(card,new LinearLayout.LayoutParams(-1,d(scope==CatalogSearch.Scope.CHANNELS?158:207)));
-        card.setOnClickListener(v->{
-          if(scope==CatalogSearch.Scope.CHANNELS){items=new ArrayList<>();for(Catalog.Item candidate:all)if(candidate.description.equals(item.description))items.add(candidate);loadedSection="TV en vivo";activeGroup=null;activeGroupSection="";}
-          openItem(item);
-        });
-        TextView folder=text(item.description,11,MUTED,false);folder.setMaxLines(1);folder.setEllipsize(TextUtils.TruncateAt.END);cell.addView(folder);
-      }
-    }
-    if(limit<matches.size())results.addView(action("Ver más resultados ("+limit+" de "+matches.size()+")",()->{searchLimit+=40;showSearchResults(results,matches,all,scope,status);}),new LinearLayout.LayoutParams(-1,d(46)));
+    results.removeAllViews();
+    CatalogCardGrid grid=new CatalogCardGrid(this,matches,television(),catalogWindowWidth(),item->{
+      seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);
+      LinearLayout cell=col();
+      FrameLayout card=poster(item,PANEL,scope==CatalogSearch.Scope.CHANNELS);cell.addView(card,new LinearLayout.LayoutParams(-1,0,1));
+      card.setOnClickListener(v->{
+        if(scope==CatalogSearch.Scope.CHANNELS){items=new ArrayList<>();for(Catalog.Item candidate:all)if(candidate.description.equals(item.description))items.add(candidate);loadedSection="TV en vivo";activeGroup=null;activeGroupSection="";}
+        openItem(item);
+      });
+      TextView folder=text(item.description,11,MUTED,false);folder.setMaxLines(1);folder.setEllipsize(TextUtils.TruncateAt.END);cell.addView(folder);
+      return cell;
+    });
+    results.addView(grid,new LinearLayout.LayoutParams(-1,-2));
   }
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
   private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text("Seguridad: el proveedor utiliza HTTP sin cifrado; las credenciales pueden ser visibles en la red.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{SessionStore.clear(this);logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
