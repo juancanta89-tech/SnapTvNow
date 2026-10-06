@@ -52,7 +52,7 @@ public class ContinueWatchingTest {
     watch(movie,91_000);history.complete("alice",movie.id);assertTrue(history.recent("alice").isEmpty());history.reset("alice",movie.id);assertFalse(history.completed("alice",movie.id));assertEquals(0,history.position("alice",movie.id));
     history.save("alice",movie.id,8_000,2_400_000,true);assertEquals(8_000,history.recent("alice").get(0).position);
   }
-  @Test public void metadataNeverPersistsPlaybackUrlHostOrSubscriberCredentials(){
+  @Test public void metadataNeverPersistsPlaybackUrlHostOrSubscriberCredentials() throws Exception {
     watch(movie,91_000);String data=RuntimeEnvironment.getApplication().getSharedPreferences("vod_playback",0).getAll().toString();assertFalse(data.contains("old.example"));assertFalse(data.contains("alice"));assertFalse(data.contains("secret"));
     XtreamClient.SERVER="https://new.example";Catalog.Item current=new XtreamClient("new user","new password","","3").resume(history.recent("alice").get(0));
     assertEquals("https://new.example/movie/new%20user/new%20password/17.mkv",current.url);assertEquals(91_000,history.position("alice",current.id));
