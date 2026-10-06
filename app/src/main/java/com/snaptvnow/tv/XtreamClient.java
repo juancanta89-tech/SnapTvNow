@@ -99,9 +99,28 @@ public final class XtreamClient {
     return out;
   }
   public List<Catalog.Item> episodes(Catalog.Item series) throws Exception {
-    String id=series.id.replace("series","");JSONObject root=new JSONObject(request(username,password,"get_series_info",id));JSONObject seasons=root.optJSONObject("episodes");List<Catalog.Item> result=new ArrayList<>();if(seasons==null)return result;
-    for(java.util.Iterator<String> keys=seasons.keys();keys.hasNext();){String season=keys.next();JSONArray arr=seasons.optJSONArray(season);if(arr==null)continue;for(int k=0;k<arr.length();k++){JSONObject e=arr.optJSONObject(k);if(e==null)continue;String ep=e.optString("id","");if(!ep.matches("[0-9]+"))continue;String ext=e.optString("container_extension","mp4").replaceAll("[^A-Za-z0-9]","");if(ext.isEmpty())ext="mp4";String path=SERVER+"/series/"+Uri.encode(username)+"/"+Uri.encode(password)+"/"+ep+"."+ext;result.add(new Catalog.Item("episode"+ep,e.optString("title",series.title+" · Episodio "+(k+1)),"Series",path,"Temporada "+season));}}
-    return result;
+    String id=series.id.replace("series","");JSONObject root=new JSONObject(request(username,password,"get_series_info",id));
+    return parseEpisodes(SERVER,username,password,series,root);
+  }
+  static List<Catalog.Item> parseEpisodes(String server,String user,String pass,Catalog.Item series,JSONObject root){
+    JSONObject seasons=root.optJSONObject("episodes");List<Catalog.Item> result=new ArrayList<>();if(seasons==null)return result;
+    for(java.util.Iterator<String> keys=seasons.keys();keys.hasNext();){String season=keys.next();JSONArray arr=seasons.optJSONArray(season);if(arr==null)continue;
+      for(int k=0;k<arr.length();k++){JSONObject e=arr.optJSONObject(k);if(e==null)continue;String ep=e.optString("id","");if(!ep.matches("[0-9]+"))continue;
+        String ext=e.optString("container_extension","mp4").replaceAll("[^A-Za-z0-9]","");if(ext.isEmpty())ext="mp4";
+        int seasonNumber=e.optInt("season",numericSeason(season)),episodeNumber=e.optInt("episode_num",k+1);
+        String path=server+"/series/"+Uri.encode(user)+"/"+Uri.encode(pass)+"/"+ep+"."+ext;
+        result.add(new Catalog.Item("episode"+ep,e.optString("title",series.title+" · Episodio "+episodeNumber),"Series",path,"Temporada "+season,series.artwork,series.id,series.title,seasonNumber,episodeNumber));
+      }
+    }
+    result.sort(java.util.Comparator.comparingInt((Catalog.Item item)->item.seasonNumber).thenComparingInt(item->item.episodeNumber));return result;
+  }
+  private static int numericSeason(String season){try{return Integer.parseInt(season);}catch(Exception ignored){return 0;}}
+  Catalog.Item resume(PlaybackHistory.Entry entry) throws Exception {
+    Catalog.Item item=entry.item;String kind=item.id.startsWith("movie")?"movie":item.id.startsWith("episode")?"series":"";
+    String id=item.id.replaceFirst("^(movie|episode)","");if(kind.isEmpty()||!id.matches("[0-9]+")||SERVER==null)throw new Exception("Título no disponible");
+    String ext=entry.extension.matches("[A-Za-z0-9]{1,12}")?entry.extension:"mp4";
+    String path=SERVER+"/"+kind+"/"+Uri.encode(username)+"/"+Uri.encode(password)+"/"+id+"."+ext;
+    return new Catalog.Item(item.id,item.title,item.category,path,item.description,item.artwork,item.seriesId,item.seriesTitle,item.seasonNumber,item.episodeNumber);
   }
   public String epg(Catalog.Item channel) throws Exception {
     if(!channel.id.startsWith("live"))return "Guía no disponible";

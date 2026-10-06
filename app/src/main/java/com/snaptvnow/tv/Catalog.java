@@ -1,7 +1,13 @@
 package com.snaptvnow.tv;
 import java.util.*;
 public final class Catalog {
- public static final class Item { public final String id,title,category,url,description,artwork; public Item(String id,String title,String category,String url,String description){this(id,title,category,url,description,"");} public Item(String id,String title,String category,String url,String description,String artwork){this.id=id;this.title=title;this.category=category;this.url=url;this.description=description;this.artwork=artwork;} }
+ public static final class Item {
+  public final String id,title,category,url,description,artwork,seriesId,seriesTitle;
+  public final int seasonNumber,episodeNumber;
+  public Item(String id,String title,String category,String url,String description){this(id,title,category,url,description,"");}
+  public Item(String id,String title,String category,String url,String description,String artwork){this(id,title,category,url,description,artwork,"","",0,0);}
+  public Item(String id,String title,String category,String url,String description,String artwork,String seriesId,String seriesTitle,int seasonNumber,int episodeNumber){this.id=id;this.title=title;this.category=category;this.url=url;this.description=description;this.artwork=artwork;this.seriesId=seriesId;this.seriesTitle=seriesTitle;this.seasonNumber=seasonNumber;this.episodeNumber=episodeNumber;}
+ }
  // Public Google demonstration clip. Replace this source with your licensed media API.
  public static final String DEMO_VIDEO="https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
  public static List<Item> demo(){return Arrays.asList(

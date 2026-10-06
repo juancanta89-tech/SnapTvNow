@@ -47,7 +47,7 @@ final class VodPlaybackSession implements Player.Listener {
       // A provider may replace the file under an existing ID with a shorter file.
       if (requestedStartPosition > 0 && duration > 0 && requestedStartPosition >= duration) {
         player.seekTo(0);
-        history.complete(account, contentId);
+        history.reset(account, contentId);
       }
       requestedStartPosition = -1;
     } else if (state == Player.STATE_ENDED) {

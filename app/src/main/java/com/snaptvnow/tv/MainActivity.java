@@ -47,8 +47,8 @@ import java.util.Set;
 
 public class MainActivity extends Activity {
   private static final int NAVY=0xff071729, PANEL=0xff10283d, CYAN=0xff29dce8, WHITE=Color.WHITE, MUTED=0xffb5c9d3;
-  private static final String[] SECTIONS={"Inicio","TV en vivo","PPV HOY","Películas","Series","Mi lista"};
-  private static final String[] ICONS={"⌂","▣","★","▶","▤","♡"};
+  private static final String[] SECTIONS={"Inicio","TV en vivo","PPV HOY","Películas","Series","Continuar viendo","Mi lista"};
+  private static final String[] ICONS={"⌂","▣","★","▶","▤","↻","♡"};
   private List<Catalog.Item> items=Catalog.demo();
   private XtreamClient client;
   private String loadedSection="";
@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
   private volatile int searchGeneration;
   private int searchScreenGeneration;
   private Runnable searchDebounce;
+  private SearchInput searchInput;
   private final java.util.concurrent.ExecutorService searchExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
   private AlertDialog trackDialog;
   private TrackSelectionParameters resumeTrackParameters;
@@ -146,6 +147,7 @@ public class MainActivity extends Activity {
     }).start();
   }
   private void render(){
+    if(searchInput!=null){searchInput.leaveEditor();searchInput=null;}
     searchGeneration++;searchScreenGeneration++;
     if(searchDebounce!=null){controlHandler.removeCallbacks(searchDebounce);searchDebounce=null;}
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}adView=null;
@@ -198,7 +200,7 @@ public class MainActivity extends Activity {
     ScrollView sc=new ScrollView(this);sc.setFillViewport(true);holder.addView(sc,new LinearLayout.LayoutParams(-1,0,1));body=col();sc.addView(body);
     switch(section){case "Inicio":home();break;case "Explorar":explore();break;case "PPV HOY":sports();break;
       case "Cuenta":account();break;
-      case "Buscar":search();break;case "Mi lista":favoritesPage();break;
+      case "Buscar":search();break;case "Continuar viendo":continueWatching(false);break;case "Mi lista":favoritesPage();break;
       default:if(client!=null&&!section.equals(loadedSection))categoryPicker();else catalog();}
   }
   private void login(){
@@ -387,9 +389,27 @@ public class MainActivity extends Activity {
   private void home(){
     hero("Todo tu entretenimiento","TV en vivo, películas y series en un solo lugar",this::refreshContent);gap(body,18);
     title("Elige qué ver");String[] names={"TV en vivo","Películas","Series"};String[] icons={"◉","▶","▤"};int[] colors={0xff0d6887,0xff71532c,0xff603e85};cards(names,icons,colors);
-    if(!recentlyPlayed.isEmpty()){gap(body,18);title("Visto recientemente");catalogRow(recentlyPlayed.subList(0,Math.min(8,recentlyPlayed.size())));}
+    gap(body,18);continueWatching(true);
     if(!items.isEmpty()){gap(body,18);title(client==null?"Vista previa":"De tu última categoría");catalogRow(items.subList(0,Math.min(12,items.size())));}
     gap(body,12);body.addView(text(client==null?"Vista de demostración. Conecta una línea para consultar su catálogo.":"Explora las categorías de tu línea para ver canales y títulos disponibles.",13,MUTED,false));
+  }
+  private void continueWatching(boolean preview){
+    List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount());
+    title("Continuar viendo");
+    if(entries.isEmpty())body.addView(text("Aquí aparecerán las películas y el último capítulo que dejes pendiente en este dispositivo.",14,MUTED,false));
+    int count=preview?Math.min(4,entries.size()):entries.size();
+    for(int index=0;index<count;index++){
+      PlaybackHistory.Entry entry=entries.get(index);
+      body.addView(new ContinueWatchingCard(this,entry,()->resumeEntry(entry)),new LinearLayout.LayoutParams(-1,-2));gap(body,8);
+    }
+    if(preview){body.addView(action("Ver todo · Continuar viendo",()->{section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));}
+  }
+  private void resumeEntry(PlaybackHistory.Entry entry){
+    if(client==null){Toast.makeText(this,"Conecta tu línea para continuar",Toast.LENGTH_LONG).show();return;}
+    if(entry.completed&&!entry.item.seriesId.isEmpty()){
+      openItem(new Catalog.Item(entry.item.seriesId,entry.item.seriesTitle,"Series","",""));return;
+    }
+    try{play(client.resume(entry));}catch(Exception error){Toast.makeText(this,"No se pudo recuperar este título",Toast.LENGTH_LONG).show();}
   }
   private void explore(){
     title("Explorar");body.addView(text("TV en vivo, películas y series",14,MUTED,false));gap(body,14);
@@ -480,8 +500,24 @@ public class MainActivity extends Activity {
       return card;
   }
   private int nIndex(Catalog.Item item){return Math.max(0,items.indexOf(item));}
-  private String[] episodeNames(List<Catalog.Item> episodes){String[] names=new String[episodes.size()];for(int k=0;k<names.length;k++)names[k]=episodes.get(k).title;return names;}
-  private void openItem(Catalog.Item i){if(client!=null&&i.id.startsWith("series")){new Thread(()->{try{List<Catalog.Item> episodes=client.episodes(i);runOnUiThread(()->{if(episodes.isEmpty()){Toast.makeText(this,"Sin episodios disponibles",Toast.LENGTH_LONG).show();return;}new AlertDialog.Builder(this).setTitle(i.title).setItems(episodeNames(episodes),(dialog,index)->play(episodes.get(index))).show();});}catch(Exception ex){runOnUiThread(()->Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show());}}).start();}else play(i);}
+  private void openItem(Catalog.Item item){
+    if(client==null||!item.id.startsWith("series")){play(item);return;}
+    final XtreamClient session=client;final LinearLayout origin=body;
+    new Thread(()->{try{
+      List<Catalog.Item> episodes=session.episodes(item);
+      runOnUiThread(()->{
+        if(client!=session||body!=origin||playing||isFinishing()||isDestroyed())return;
+        if(episodes.isEmpty()){Toast.makeText(this,"Sin episodios disponibles",Toast.LENGTH_LONG).show();return;}
+        int recommended=EpisodeSelection.recommended(episodes,playbackHistory,playbackAccount());
+        Catalog.Item next=episodes.get(recommended);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(item.title)
+            .setSingleChoiceItems(EpisodeSelection.labels(episodes,playbackHistory,playbackAccount()),recommended,(picker,index)->{picker.dismiss();play(episodes.get(index));})
+            .setNeutralButton(playbackHistory.position(playbackAccount(),next.id)>0?"Continuar":"Ver capítulo",(picker,which)->play(next))
+            .setNegativeButton("Cerrar",null).create();
+        dialog.setOnShowListener(visible->{dialog.getListView().requestFocus();dialog.getListView().setSelection(recommended);});dialog.show();
+      });
+    }catch(Exception error){runOnUiThread(()->{if(client==session&&body==origin&&!isFinishing()&&!isDestroyed())Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show();});}}).start();
+  }
   private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{if(!favorites.add(i.id))favorites.remove(i.id);prefs.edit().putBoolean("fav_"+i.id,favorites.contains(i.id)).apply();render();}).setNegativeButton("Cerrar",null).show();}
   private void openSearch(){
     if(!section.equals("Buscar")){searchOrigin=section;searchScope=CatalogSearch.Scope.forSection(section,searchScope);query="";}
@@ -496,16 +532,15 @@ public class MainActivity extends Activity {
       scopes.addView(tab,new LinearLayout.LayoutParams(0,d(46),1));
     }
     gap(body,10);
-    EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Buscar "+(searchScope==CatalogSearch.Scope.CHANNELS?"canales":searchScope.section.toLowerCase(Locale.ROOT))+" en todas las carpetas");
-    input.setTextColor(WHITE);input.setHintTextColor(MUTED);input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);input.setText(query);body.addView(input);
+    SearchInput input=new SearchInput(this);searchInput=input;input.setHint("Buscar "+(searchScope==CatalogSearch.Scope.CHANNELS?"canales":searchScope.section.toLowerCase(Locale.ROOT))+" en todas las carpetas");
+    input.setTextColor(WHITE);input.setHintTextColor(MUTED);input.setText(query);body.addView(input);
     LinearLayout buttons=new LinearLayout(this);body.addView(buttons);
     TextView status=text("",14,MUTED,false);body.addView(status);gap(body,12);
     LinearLayout results=col();body.addView(results);
     final int page=searchScreenGeneration;
     Runnable submit=()->submitSearch(input.getText().toString(),status,results,page);
-    buttons.addView(action("Buscar",submit),new LinearLayout.LayoutParams(0,d(44),1));
+    TextView searchButton=action("Buscar",submit);buttons.addView(searchButton,new LinearLayout.LayoutParams(0,d(44),1));input.bind(searchButton,submit);
     buttons.addView(action("Volver",()->{section=searchOrigin;render();}),new LinearLayout.LayoutParams(0,d(44),1));
-    input.setOnEditorActionListener((view,action,event)->{submit.run();return true;});
     input.addTextChangedListener(new android.text.TextWatcher(){
       public void beforeTextChanged(CharSequence t,int start,int count,int after){}
       public void onTextChanged(CharSequence t,int start,int before,int count){
@@ -674,7 +709,7 @@ public class MainActivity extends Activity {
       }
       else unavailable(stage,item,null);
     }});
-    if(vod){vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
+    if(vod){playbackHistory.remember(playbackAccount(),item);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
     else{video.setMediaItem(MediaItem.fromUri(item.url));video.setPlayWhenReady(!lifecyclePaused);video.prepare();}
     resumePosition=-1;resumePaused=false;
     if(!vod){View tapLayer=new View(this);stage.addView(tapLayer,new FrameLayout.LayoutParams(-1,-1));tapLayer.setOnClickListener(v->{if(playerControls!=null&&playerControls.getVisibility()==View.VISIBLE)playerControls.setVisibility(View.GONE);else showPlayerControls();});}
@@ -691,7 +726,7 @@ public class MainActivity extends Activity {
       LinearLayout options=new LinearLayout(this);options.setPadding(d(12),0,d(12),0);options.setBackgroundColor(0xc0071729);toolbar.addView(options);
       options.addView(action("Audio",()->openTrackOptions(activePlayer,C.TRACK_TYPE_AUDIO)),new LinearLayout.LayoutParams(d(90),d(45)));
       options.addView(action("Subtítulos",()->openTrackOptions(activePlayer,C.TRACK_TYPE_TEXT)),new LinearLayout.LayoutParams(d(110),d(45)));
-      TextView restart=action("Desde inicio",()->{if(video==activePlayer){playbackHistory.complete(playbackAccount(),item.id);video.seekTo(0);video.play();showPlayerControls();}});restart.setTextSize(12);options.addView(restart,new LinearLayout.LayoutParams(d(95),d(45)));
+      TextView restart=action("Desde inicio",()->{if(video==activePlayer){playbackHistory.reset(playbackAccount(),item.id);video.seekTo(0);video.play();showPlayerControls();}});restart.setTextSize(12);options.addView(restart,new LinearLayout.LayoutParams(d(95),d(45)));
       options.addView(action("⛶",()->{if(playerView==activeView){int mode=playerView.getResizeMode();playerView.setResizeMode(mode==AspectRatioFrameLayout.RESIZE_MODE_FIT?AspectRatioFrameLayout.RESIZE_MODE_ZOOM:AspectRatioFrameLayout.RESIZE_MODE_FIT);showPlayerControls();}}),new LinearLayout.LayoutParams(d(48),d(45)));
     }else{
     LinearLayout bottom=new LinearLayout(this);bottom.setGravity(Gravity.CENTER);bottom.setPadding(d(8),d(8),d(8),d(8));bottom.setBackground(gradient(0x33071729,0xc6071729,0));
@@ -725,5 +760,5 @@ public class MainActivity extends Activity {
   @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(playing&&currentItem!=null){rememberPlayback();play(currentItem);}else render();}
   @Override protected void onStart(){super.onStart();if(playing&&video==null&&currentItem!=null)play(currentItem);}
   @Override protected void onStop(){rememberPlayback();releaseVideo();super.onStop();}
-  @Override public void onBackPressed(){if(playing){render();return;}if(logged&&!section.equals("Inicio")){section="Inicio";render();return;}super.onBackPressed();}
+  @Override public void onBackPressed(){if(playing){render();return;}if(section.equals("Buscar")){if(searchInput!=null&&searchInput.hasFocus()){searchInput.leaveEditor();return;}section=searchOrigin;render();return;}if(logged&&!section.equals("Inicio")){section="Inicio";render();return;}super.onBackPressed();}
 }
