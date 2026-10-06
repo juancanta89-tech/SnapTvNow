@@ -1,0 +1,28 @@
+name: Preparar demo Smart TV
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/smart-tv-tizen-webos]
+    paths: [smart-tv/**, .github/workflows/smart-tv-packages.yml]
+permissions:
+  contents: read
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smart-tv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm run build && npm run check && npm test
+      - run: npm install --global @webos-tools/cli@3.2.6
+      - run: npm run package:sources && npm run package:webos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SNAPTVNOW-TV-demo
+          path: smart-tv/packages/
+          if-no-files-found: error
+          retention-days: 30
