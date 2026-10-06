@@ -1,1 +1,14 @@
-{"id":"com.snaptvnow.tv.demo","version":"0.1.0","vendor":"SNAPTVNOW","type":"web","main":"index.html","title":"SNAPTVNOW Demo","icon":"icon.png","largeIcon":"largeIcon.png","resolution":"1920x1080","bgColor":"#07141d","disableBackHistoryAPI":true}
+{
+  "id": "com.snaptvnow.tv.demo",
+  "version": "0.1.0",
+  "vendor": "SNAPTVNOW",
+  "type": "web",
+  "main": "index.html",
+  "title": "SNAPTVNOW Demo",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "resolution": "1920x1080",
+  "bgColor": "#07141d",
+  "disableBackHistoryAPI": true,
+  "requiredACG": []
+}
