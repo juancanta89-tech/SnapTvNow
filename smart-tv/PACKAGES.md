@@ -1,3 +1,5 @@
+> Actualización: esta rama ahora usa acceso real al panel. Consulta REAL-PANEL.md; las notas históricas de demo abajo describen la entrega anterior.
+
 # Paquetes SNAPTVNOW TV demo 0.1
 
 Esta entrega sigue siendo una demo. No contiene cuentas reales ni está lista para las tiendas. Compatibilidad objetivo: Samsung Tizen 6.0+ y LG webOS TV 6+. No se ha confirmado en televisores físicos; no implica compatibilidad con todos los modelos.
