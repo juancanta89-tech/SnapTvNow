@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 import android.os.Looper;
 import androidx.media3.common.Player;
+import androidx.media3.common.PlaybackException;
 import java.time.Duration;
 import org.junit.After;
 import org.junit.Before;
@@ -37,7 +38,7 @@ public class LivePlaybackRecoveryTest {
     millis(3_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }
   @Test public void audioSinkFailureRequestsFreshSessionQuickly(){
-    recovery.failure("audio_sink_error");millis(249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
+    recovery.onPlayerError(new PlaybackException("Audio output failed",null,PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED));millis(249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }
   @Test public void duplicateErrorsQueueOnlyOneReconnect(){
     recovery.failure("audio_sink_error");recovery.failure("player_error");millis(250);assertEquals(1,reconnects);assertEquals(1,retries.failures);

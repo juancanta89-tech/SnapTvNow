@@ -770,11 +770,7 @@ public class MainActivity extends Activity {
       activePlayer.addListener(new Player.Listener(){@Override public void onTracksChanged(androidx.media3.common.Tracks tracks){
         recovery.videoExpected(tracks.isTypeSelected(C.TRACK_TYPE_VIDEO));
       }});
-      activePlayer.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener(){
-        @Override public void onAudioSinkError(EventTime time,Exception error){recovery.failure("audio_sink_error");}
-        @Override public void onAudioCodecError(EventTime time,Exception error){recovery.failure("audio_codec_error");}
-        @Override public void onVideoCodecError(EventTime time,Exception error){recovery.failure("video_codec_error");}
-      });
+
     }
     if(vod){playbackHistory.remember(playbackAccount(),item);Artwork.rememberHistory(getApplicationContext(),PlaybackHistory.artworkKey(playbackAccount(),item),item.artwork);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
     else{video.setMediaItem(MediaItem.fromUri(item.url));video.setPlayWhenReady(!lifecyclePaused);video.prepare();}
