@@ -37,6 +37,10 @@ public class LivePlaybackRecoveryTest {
     recovery.onPlaybackStateChanged(Player.STATE_BUFFERING);
     millis(3_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }
+  @Test public void recreatedSessionAllowsFullInitialLoadingWindow(){
+    recovery.onPlaybackStateChanged(Player.STATE_READY);recovery.close();create();
+    millis(3_250);assertEquals(0,reconnects);millis(5_000);assertEquals(1,reconnects);
+  }
   @Test public void audioSinkFailureRequestsFreshSessionQuickly(){
     recovery.onPlayerError(new PlaybackException("Audio output failed",null,PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED));millis(249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }
