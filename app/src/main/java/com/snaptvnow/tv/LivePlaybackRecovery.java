@@ -10,6 +10,7 @@ import androidx.media3.common.Player;
 final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
   static final class RetryState {
     int failures;
+    boolean hadSignal;
     long delay() { return Math.min(8_000L, 250L << Math.min(failures++, 5)); }
   }
   interface Listener { void reconnect(String reason); }
@@ -57,7 +58,7 @@ final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
       if(state==Player.STATE_ENDED || state==Player.STATE_IDLE)failure("live_stopped");
       else if(state==Player.STATE_BUFFERING) {
         healthySince=0;
-        if(now-lastProgress>=8_000)failure("buffering_timeout");
+        if(now-lastProgress>=(retries.hadSignal?3_000:8_000))failure("buffering_timeout");
       } else if(state==Player.STATE_READY) {
         if(Math.abs(position-lastPosition)>=100) {lastPosition=position;lastProgress=now;}
         if(now-lastProgress>=12_000)failure("playback_stalled");
@@ -72,6 +73,7 @@ final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
   }
   @Override public void onPlaybackStateChanged(int state) {
     if(state==Player.STATE_BUFFERING) {lastProgress=SystemClock.elapsedRealtime();healthySince=0;}
+    else if(state==Player.STATE_READY)retries.hadSignal=true;
     else if(state==Player.STATE_ENDED)failure("live_ended");
   }
   @Override public void onPlayWhenReadyChanged(boolean ready,int reason) {

@@ -31,6 +31,11 @@ public class LivePlaybackRecoveryTest {
   @Test public void bufferingWithoutPlayerErrorRecoversAfterEightSeconds(){
     millis(8_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);assertEquals("buffering_timeout",reason);
   }
+  @Test public void establishedChannelBufferingRecoversWithinThreeSeconds(){
+    recovery.onPlaybackStateChanged(Player.STATE_READY);
+    recovery.onPlaybackStateChanged(Player.STATE_BUFFERING);
+    millis(3_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
+  }
   @Test public void audioSinkFailureRequestsFreshSessionQuickly(){
     recovery.failure("audio_sink_error");millis(249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }

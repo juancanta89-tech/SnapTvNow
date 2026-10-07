@@ -2,7 +2,7 @@
 
 El manejo anterior solo recuperaba errores explícitos, esperaba cuatro segundos y reutilizaba el reproductor fallido. No detectaba una carga interminable, el fin inesperado de un directo ni un reproductor READY congelado. Tres errores agotaban la recuperación durante toda la sesión.
 
-Un supervisor por canal detecta errores del reproductor, del codec y de la salida de audio; carga atascada durante ocho segundos; posición congelada durante doce segundos; y ausencia de fotogramas durante doce segundos cuando hay video seleccionado. No interpreta silencio de la transmisión como un fallo ni vigila fotogramas en canales de audio solamente.
+Un supervisor por canal detecta errores del reproductor, del codec y de la salida de audio; carga atascada durante tres segundos en un canal que ya dio señal (ocho segundos en la primera carga); posición congelada durante doce segundos; y ausencia de fotogramas durante doce segundos cuando hay video seleccionado. No interpreta silencio de la transmisión como un fallo ni vigila fotogramas en canales de audio solamente.
 
 La recuperación libera el reproductor anterior y sus renderizadores, crea una nueva sesión de audio/video y solicita de nuevo la URL del mismo canal desde el directo. El primer error explícito se reintenta en 250 ms. Fallos consecutivos aumentan la espera hasta ocho segundos y se sigue intentando; treinta segundos de reproducción saludable restablecen la espera inicial. No cambia automáticamente de canal después de un bloqueo. La búsqueda explícita de otro canal disponible conserva su comportamiento.
 
