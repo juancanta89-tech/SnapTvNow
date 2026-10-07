@@ -1,0 +1,13 @@
+# Recuperación de TV en vivo — 1.0.10
+
+El manejo anterior solo recuperaba errores explícitos, esperaba cuatro segundos y reutilizaba el reproductor fallido. No detectaba una carga interminable, el fin inesperado de un directo ni un reproductor READY congelado. Tres errores agotaban la recuperación durante toda la sesión.
+
+Un supervisor por canal detecta errores del reproductor, del codec y de la salida de audio; carga atascada durante ocho segundos; posición congelada durante doce segundos; y ausencia de fotogramas durante doce segundos cuando hay video seleccionado. No interpreta silencio de la transmisión como un fallo ni vigila fotogramas en canales de audio solamente.
+
+La recuperación libera el reproductor anterior y sus renderizadores, crea una nueva sesión de audio/video y solicita de nuevo la URL del mismo canal desde el directo. El primer error explícito se reintenta en 250 ms. Fallos consecutivos aumentan la espera hasta ocho segundos y se sigue intentando; treinta segundos de reproducción saludable restablecen la espera inicial. No cambia automáticamente de canal después de un bloqueo. La búsqueda explícita de otro canal disponible conserva su comportamiento.
+
+Se habilita el manejo de foco de audio de Media3 y la alternativa de decodificador. No se modifica el volumen global del dispositivo. La pausa intencional, la pérdida de foco de audio, el cierre, el cambio de canal y el paso a segundo plano no disparan reconexiones. Todos los temporizadores se cancelan al liberar la sesión. El botón pausa ahora se basa en la intención de reproducción, por lo que permite pausar también durante una carga. Un directo terminado no se restaura como una pausa al volver a la aplicación.
+
+Pruebas automáticas: bloqueos con y sin error, error de salida de audio, eventos duplicados, cierre/cambio de canal, pausa, foco de audio, fin de directo, video congelado con posición en movimiento, canal solo de audio, reproducción simulada de dos horas, recuperación normal y reinicio de las esperas. Las pruebas simuladas no sustituyen una prueba de dos horas con América Televisión en un celular y una TV reales.
+
+No se dispone de un registro del incidente original. Las deficiencias anteriores están verificadas en el código, pero no prueban por sí solas qué fallo del servidor, de la red o del dispositivo originó el incidente. La velocidad de recuperación depende también de la disponibilidad y del tiempo de carga del proveedor; no puede garantizarse una señal ininterrumpida. Las URLs y credenciales no se escriben en los mensajes de diagnóstico.
