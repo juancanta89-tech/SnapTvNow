@@ -741,9 +741,7 @@ public class MainActivity extends Activity {
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
     FrameLayout stage=new FrameLayout(this);stage.setTag("player_stage");stage.setBackgroundColor(Color.BLACK);setContentView(stage);
     playerView=new PlayerView(this);playerView.setUseController(false);playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);playerView.setKeepScreenOn(true);if(vod)VodPlayerControls.configure(playerView);stage.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
-    video=new ExoPlayer.Builder(this,new androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
-        .setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),true)
-        .setHandleAudioBecomingNoisy(true).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();playerView.setPlayer(video);
+    video=createPlayer();playerView.setPlayer(video);
     final ExoPlayer activePlayer=video;
     final PlayerView activeView=playerView;
     if(sameSession && resumeTrackParameters!=null)video.setTrackSelectionParameters(resumeTrackParameters);
@@ -757,21 +755,7 @@ public class MainActivity extends Activity {
       if(findingOnline)controlHandler.post(()->{if(playing&&findingOnline&&currentItem==item)tryNextOnline(item);});
       else if(vod)unavailable(stage,item,null);
     }});
-    if(!vod){
-      liveRecovery=new LivePlaybackRecovery(activePlayer,liveRetries,reason->{
-        if(!playing||currentItem!=item||video!=activePlayer)return;
-        if(findingOnline){tryNextOnline(item);return;}
-        android.util.Log.w("LiveRecovery",reason); // No stream URL, account or credentials in logs.
-        resumePaused=false;resumeTrackParameters=null;
-        play(item); // Release the old audio/video renderers before creating a fresh session.
-      });
-      final LivePlaybackRecovery recovery=liveRecovery;
-      activePlayer.setVideoFrameMetadataListener((presentationTimeUs,releaseTimeNs,format,mediaFormat)->recovery.videoFrame());
-      activePlayer.addListener(new Player.Listener(){@Override public void onTracksChanged(androidx.media3.common.Tracks tracks){
-        recovery.videoExpected(tracks.isTypeSelected(C.TRACK_TYPE_VIDEO));
-      }});
-
-    }
+    if(!vod)attachLiveRecovery(item,activePlayer);
     if(vod){playbackHistory.remember(playbackAccount(),item);Artwork.rememberHistory(getApplicationContext(),PlaybackHistory.artworkKey(playbackAccount(),item),item.artwork);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
     else{video.setMediaItem(MediaItem.fromUri(item.url));video.setPlayWhenReady(!lifecyclePaused);video.prepare();}
     resumePosition=-1;resumePaused=false;resumeEpisodeEnded=false;
@@ -815,6 +799,33 @@ public class MainActivity extends Activity {
     }
     if(vod)playerView.requestFocus();else back.requestFocus();showPlayerControls();
     if(EpisodeQueue.isEpisode(item))setupEpisodePlayback(item,activePlayer,stage,restoreEpisodeEnd);
+  }
+  ExoPlayer createPlayer(){
+    return new ExoPlayer.Builder(this,new androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
+        .setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),true)
+        .setHandleAudioBecomingNoisy(true).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();
+  }
+  private void attachLiveRecovery(Catalog.Item item,ExoPlayer activePlayer){
+    liveRecovery=new LivePlaybackRecovery(activePlayer,liveRetries,reason->{
+      if(!playing||currentItem!=item||video!=activePlayer)return;
+      if(findingOnline){tryNextOnline(item);return;}
+      android.util.Log.w("LiveRecovery",reason); // No stream URL, account or credentials in logs.
+      rebuildLivePlayer(item,activePlayer);
+    });
+    final LivePlaybackRecovery recovery=liveRecovery;
+    activePlayer.setVideoFrameMetadataListener((presentationTimeUs,releaseTimeNs,format,mediaFormat)->recovery.videoFrame());
+    activePlayer.addListener(new Player.Listener(){@Override public void onTracksChanged(androidx.media3.common.Tracks tracks){
+      recovery.videoExpected(tracks.isTypeSelected(C.TRACK_TYPE_VIDEO));
+    }});
+  }
+  private void rebuildLivePlayer(Catalog.Item item,ExoPlayer expected){
+    if(!playing||currentItem!=item||video!=expected||playerView==null||!expected.getPlayWhenReady())return;
+    // Keep the existing surface, aspect ratio, controls and TV focus during recovery.
+    playerView.setKeepContentOnPlayerReset(true);
+    if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
+    video=null;playerView.setPlayer(null);expected.release();
+    video=createPlayer();playerView.setPlayer(video);attachLiveRecovery(item,video);
+    video.setMediaItem(MediaItem.fromUri(item.url));video.prepare();video.play();
   }
   private void setupEpisodePlayback(Catalog.Item item,ExoPlayer activePlayer,FrameLayout stage,boolean restoredEnd){
     episodeController=new EpisodePlaybackController(activePlayer,prefs.getBoolean("series_autoplay",true),new EpisodePlaybackController.Listener(){
