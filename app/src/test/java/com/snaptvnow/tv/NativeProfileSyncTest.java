@@ -24,6 +24,9 @@ public class NativeProfileSyncTest {
   assertNull(XtreamClient.parseItems("https://unrelated.example","alice","test","Películas",new JSONArray().put(row),new java.util.HashMap<>()).get(0).profile);
   assertFalse(ProfileReference.managed("http://api.snaptvnow.com"));assertFalse(ProfileReference.managed("https://api.snaptvnow.com.evil.example"));assertFalse(ProfileReference.managed("https://api.snaptvnow.com:444"));
  }
+ @Test public void aClientKeepsItsServerAfterAnotherAccountConnects(){
+  XtreamClient.SERVER="https://first.example";XtreamClient first=new XtreamClient("alice","test","","");XtreamClient.SERVER="https://second.example";XtreamClient second=new XtreamClient("bob","test","","");assertEquals("https://first.example",first.server());assertEquals("https://second.example",second.server());
+ }
  @Test public void favoritesAreSeparatedByAccountAndService(){
   AccountFavorites favorites=new AccountFavorites(context);String alice=AccountFavorites.scope("https://api.snaptvnow.com","Alice"),bob=AccountFavorites.scope("https://api.snaptvnow.com","bob"),other=AccountFavorites.scope("https://other.example","alice");
   context.getSharedPreferences("demo",0).edit().putBoolean("fav_movie123",true).commit();favorites.save(alice,new HashSet<>(Arrays.asList("movie123")));
@@ -48,4 +51,12 @@ public class NativeProfileSyncTest {
   final NativeProfileSync[] sync={null};final int[] changed={0};sync[0]=new NativeProfileSync(context,"alice",(op,b)->{sync[0].stop();return new JSONObject().put("records",new JSONArray().put(favorite(now,false)));},()->changed[0]++);
   sync[0].syncNow();assertTrue(sync[0].snapshot().isEmpty());assertEquals(0,changed[0]);
  }
+ @Test public void metricsRetryTheSameIdentityAndAreNotPersisted()throws Exception{
+  final int[] calls={0};final String[] id={null};NativeProfileSync sync=new NativeProfileSync(context,"alice",(op,body)->{if(op.equals("playback_metric")){calls[0]++;String next=body.getJSONObject("metric").getString("report_id");if(id[0]==null)id[0]=next;else assertEquals(id[0],next);if(calls[0]==1)throw new Exception("network_failed");return new JSONObject().put("ok",true).put("limited",calls[0]==2);}return new JSONObject().put("records",new JSONArray());},()->{});
+  sync.queueMetric(new JSONObject().put("report_id","synthetic-report"));try{sync.syncNow();fail();}catch(Exception expected){}sync.syncNow();sync.syncNow();sync.syncNow();assertEquals(3,calls[0]);assertFalse(context.getSharedPreferences("native_profile",0).getAll().toString().contains("synthetic-report"));sync.stop();
+ }
+ @Test public void historyIsSeparatedByServiceAndHttpsIsRequired()throws Exception{
+  PlaybackHistory history=new PlaybackHistory(context);String a=AccountFavorites.scope("https://first.example","alice"),b=AccountFavorites.scope("https://second.example","alice");history.save(a,"movie123",90000,120000,true);assertEquals(0,history.position(b,"movie123"));assertEquals("https://api.snaptvnow.com",AppConfig.validate("https://api.snaptvnow.com/"));try{AppConfig.validate("http://provider.example");fail();}catch(Exception expected){}
+ }
+
 }

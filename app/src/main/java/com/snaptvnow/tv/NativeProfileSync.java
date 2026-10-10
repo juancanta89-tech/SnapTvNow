@@ -25,6 +25,7 @@ final class NativeProfileSync {
  private final Runnable changed;
  private final ExecutorService executor=Executors.newSingleThreadExecutor();
  private final Map<String,JSONObject> records=new LinkedHashMap<>(),pending=new LinkedHashMap<>();
+ private final List<JSONObject> metrics=new ArrayList<>(); // Bounded memory only; never stored with the profile.
  private boolean closed,scheduled;
  private long lastTime;
  NativeProfileSync(Context context,String account,Remote remote,Runnable changed){
@@ -53,6 +54,7 @@ final class NativeProfileSync {
   trim();persist();
  }
  private void trim(){
+  while(pending.size()>200){String oldest=null;long at=Long.MAX_VALUE;for(Map.Entry<String,JSONObject> e:pending.entrySet())if(oldest==null||e.getValue().optLong("updatedAt")<at){oldest=e.getKey();at=e.getValue().optLong("updatedAt");}pending.remove(oldest);}
   List<JSONObject> sorted=new ArrayList<>(records.values());java.util.Collections.sort(sorted,(a,b)->Long.compare(b.optLong("updatedAt"),a.optLong("updatedAt")));
   int favorites=0,progress=0;for(JSONObject p:sorted){String kind=p.optString("kind");boolean remove=kind.equals("favorite")&&++favorites>100||kind.equals("progress")&&++progress>50;if(remove&&!pending.containsKey(identity(p)))records.remove(identity(p));}
  }
@@ -73,9 +75,13 @@ final class NativeProfileSync {
  }
  void preference(String key,String value){try{queue(new JSONObject().put("kind","preference").put("key",key).put("value",value).put("updatedAt",time()));refresh();}catch(Exception ignored){}}
  synchronized String preference(String key){JSONObject p=records.get("preference:"+key);return p!=null&&!p.optBoolean("deleted")?p.optString("value",null):null;}
+ synchronized void queueMetric(JSONObject metric){if(closed)return;if(metrics.size()>=20)metrics.remove(0);metrics.add(metric);}
+ void metric(JSONObject metric){queueMetric(metric);refresh();}
  void refresh(){synchronized(this){if(closed||scheduled)return;scheduled=true;}executor.execute(()->{try{syncNow();}catch(Exception ignored){/* Pending patches remain persisted for the next foreground/network retry. */}finally{synchronized(this){scheduled=false;}}});}
  void syncNow() throws Exception {
   final Remote connection;synchronized(this){if(closed||remote==null)return;connection=remote;}
+  final JSONObject metric;synchronized(this){metric=metrics.isEmpty()?null:metrics.get(0);}
+  if(metric!=null){JSONObject result=connection.call("playback_metric",new JSONObject().put("metric",metric));synchronized(this){if(closed)return;if(!result.optBoolean("limited")&&!metrics.isEmpty()&&metrics.get(0)==metric)metrics.remove(0);}}
   JSONObject latest=connection.call("profile_get",new JSONObject());merge(latest.optJSONArray("records"));
   final List<JSONObject> batch;synchronized(this){if(closed)return;batch=new ArrayList<>(pending.values()).subList(0,Math.min(160,pending.size()));}
   if(!batch.isEmpty()){
@@ -84,7 +90,7 @@ final class NativeProfileSync {
   }
   synchronized(this){if(closed)return;}changed.run();
  }
- synchronized void stop(){closed=true;remote=null;executor.shutdownNow();}
+ synchronized void stop(){closed=true;remote=null;metrics.clear();executor.shutdownNow();}
  private static final class ApiRemote implements Remote {
   private final XtreamClient client;private String token;
   ApiRemote(XtreamClient client){this.client=client;}

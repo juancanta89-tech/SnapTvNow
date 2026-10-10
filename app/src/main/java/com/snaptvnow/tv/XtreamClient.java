@@ -54,7 +54,6 @@ public final class XtreamClient {
         if(info==null||info.optInt("auth",0)!=1){rejected=true;continue;}
         String status=info.optString("status","");
         if(!status.equalsIgnoreCase("Active")){inactiveStatus=status;continue;}
-        SERVER=server;
         return new XtreamClient(server,username,password,info.optString("exp_date",""),info.optString("max_connections",""));
       }catch(Exception ignored){}
     }

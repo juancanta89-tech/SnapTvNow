@@ -1,6 +1,6 @@
 # SNAPTVNOW Android
 
-Proyecto Android de SNAPTVNOW. La verificación automática compila el código fuente y no genera ni publica una APK.
+Proyecto Android de SNAPTVNOW. La verificación automática compila el código fuente y genera una APK de prueba separada; la distribución de producción exige la firma existente.
 
 ## Estado VPN
 
@@ -18,6 +18,8 @@ Las cuentas conectadas a `https://api.snaptvnow.com` sincronizan favoritos, prog
 
 Los cambios pendientes se conservan por cuenta para reintentar al volver a primer plano. La mezcla usa fechas y tombstones; una respuesta antigua o de una sesión cerrada no cambia la cuenta actual. Progreso remoto en segundos se convierte a milisegundos y no reemplaza un avance local más reciente. Los títulos remotos se consultan al abrir Mi lista/Continuar viendo; las temporadas se limitan a ocho por carga. El contenido no disponible conserva su referencia sin inventar una URL de reproducción.
 
-Los favoritos locales se separan por usuario y servidor. Los antiguos valores globales `fav_*` no tenían propietario y no se asignan automáticamente a otro usuario. Cambiar de cuenta borra los favoritos visibles de la sesión anterior. Cada cliente Xtream conserva su servidor: una petición tardía no utiliza el servidor de otra sesión.
+Los favoritos y el progreso locales se separan por usuario y servidor. El historial anterior no identificaba el servidor y se conserva almacenado sin mezclarlo automáticamente con una cuenta de otro servicio. Los antiguos valores globales `fav_*` no tenían propietario y no se asignan automáticamente a otro usuario. Cambiar de cuenta borra los favoritos visibles de la sesión anterior. La configuración exige HTTPS y, si no hay una configuración remota o guardada válida, usa el dominio propio. Cada cliente Xtream conserva su servidor: una petición tardía no utiliza el servidor de otra sesión.
 
 Validación requerida antes de distribuir: ejecutar las pruebas Robolectric de sincronización, aislamiento y reproductor, compilar la variante debug, y probar en teléfono/TV con dos cuentas ficticias y la web. La distribución release conserva el applicationId y requiere la clave de firma de producción existente. No generar una clave alternativa para actualizar una APK instalada.
+
+El panel distingue métricas web/Android: primer cuadro, tiempo reproduciendo/cargando, cortes y errores. Android no mide bytes ni cuadros decodificados en estos informes. Los informes agregados se reintentan con el mismo identificador, con hasta veinte en memoria; no se guardan con el perfil y se descartan al cerrar la cuenta. No incluyen usuario, dispositivo, título ni URL. No son una medición de facturación.

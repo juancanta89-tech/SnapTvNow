@@ -53,7 +53,7 @@ final class AppConfig {
       }
       String last=prefs.getString(SERVER,null);
       if(last!=null)try{List<String> single=new ArrayList<>();single.add(validate(last));return single;}catch(Exception ignored){}
-      throw new Exception("Se requiere un servidor HTTPS válido para proteger tu cuenta. Solicita la dirección segura al proveedor.");
+      List<String> own=new ArrayList<>();own.add("https://api.snaptvnow.com");return own;
     }
   }
   static void rememberWorking(Context context,String server){context.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(WORKING,server).apply();}
@@ -61,9 +61,9 @@ final class AppConfig {
     String last=context.getSharedPreferences(PREF,Context.MODE_PRIVATE).getString(WORKING,null);
     return last!=null&&servers.contains(last)?last:servers.get(0);
   }
-  private static String validate(String raw) throws Exception {
+  static String validate(String raw) throws Exception {
     URL url=new URL(raw.trim());
-    if(!url.getProtocol().equals("http")&&!url.getProtocol().equals("https"))throw new Exception("Protocolo inválido");
+    if(!url.getProtocol().equals("https"))throw new Exception("Se requiere HTTPS para proteger tu cuenta");
     if(url.getHost().isEmpty()||url.getUserInfo()!=null||!url.getPath().matches("/?")
       ||url.getQuery()!=null||url.getRef()!=null)throw new Exception("Dirección de servidor inválida");
     return url.toString().replaceAll("/$","");

@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
   private boolean resumeEpisodeEnded;
   private LinearLayout root, body;
   private ExoPlayer video;
+  private NativePlaybackMetrics playbackMetrics;
   private PlayerView playerView;
   private FrameLayout playerControls;
   private final android.os.Handler controlHandler=new android.os.Handler(android.os.Looper.getMainLooper());
@@ -113,17 +114,17 @@ public class MainActivity extends Activity {
   private AccountFavorites accountFavorites;
   private NativeProfileSync nativeProfile;
   private String favoriteAccount="";
-  private int profileGeneration;
+  private int profileGeneration,loginRequest;
   private Runnable profileTick;
   private boolean profileHydrating;
   private final java.util.Set<String> hydratedProfiles=new java.util.HashSet<>();
   private void bindProfile(){
-    closeProfile();favoriteAccount=AccountFavorites.scope(client!=null?client.server():"demo",playbackAccount());favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
+    closeProfile();favoriteAccount=client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
     final int generation=profileGeneration;
     nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;applyProfiles();if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();}));
     if(nativeProfile!=null){nativeProfile.refresh();profileTick=new Runnable(){int ticks;public void run(){if(generation!=profileGeneration||nativeProfile==null)return;if(vodSession!=null){vodSession.saveNow();nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(++ticks%8==0)nativeProfile.refresh();controlHandler.postDelayed(this,15000);}};controlHandler.postDelayed(profileTick,15000);}
   }
-  private void closeProfile(){profileGeneration++;profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
+  private void closeProfile(){loginRequest++;profileGeneration++;profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
   private void applyProfiles(){
     if(nativeProfile==null)return;
     for(Catalog.Item item:seen.values())applyProfile(item);
@@ -173,15 +174,16 @@ public class MainActivity extends Activity {
       List<String> servers=null;String error=null;XtreamClient restored=null;
       try{
         servers=AppConfig.load(this);
+        XtreamClient.SERVER=AppConfig.lastWorking(this,servers);
         restored=SessionStore.restore(this);
         if(restored!=null){
-          try{restored=restored.reconnect(servers);AppConfig.rememberWorking(this,XtreamClient.SERVER);}
+          try{restored=restored.reconnect(servers);AppConfig.rememberWorking(this,restored.server());}
           catch(Exception ignored){XtreamClient.SERVER=AppConfig.lastWorking(this,servers);}
         }else XtreamClient.SERVER=servers.get(0);
       }catch(Exception e){error=e.getMessage();}
       final XtreamClient resolved=restored;final String problem=error;
       runOnUiThread(()->{
-        client=resolved;logged=client!=null;bindProfile();
+        client=resolved;logged=client!=null;if(client!=null)XtreamClient.SERVER=client.server();bindProfile();
         if(logged)items=new ArrayList<>();
         for(Catalog.Item i:items)seen.put(i.id,i);
         render();
@@ -243,7 +245,7 @@ public class MainActivity extends Activity {
       LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);bar.addView(button,lp);
     }
   }
-  private void releaseVideo(){episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
+  private void releaseVideo(){if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
   private void brand(LinearLayout holder,int size){TextView t=text("SNAPTVNOW",size,CYAN,true);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t);}
   private void navigation(LinearLayout holder,boolean horizontal){for(int i=0;i<SECTIONS.length;i++){String s=SECTIONS[i],label=ICONS[i]+"  "+s;TextView t=action(label,()->{section=s;render();});t.setTextSize(horizontal?13:14);t.setGravity(horizontal?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(s.equals(section)){t.setBackground(gradient(0xff106580,0xff0b354e,12));t.setTextColor(CYAN);}LinearLayout.LayoutParams lp=horizontal?new LinearLayout.LayoutParams(d(105),d(46)):new LinearLayout.LayoutParams(-1,d(49));lp.setMargins(0,0,horizontal?d(5):0,horizontal?0:d(4));holder.addView(t,lp);if(s.equals(section))initialFocus=t;}}
   private void content(LinearLayout holder){
@@ -331,7 +333,16 @@ public class MainActivity extends Activity {
     if(VpnTunnel.disconnect(this))Toast.makeText(this,"Desconectando VPN…",Toast.LENGTH_SHORT).show();
     else showVpnError("No hay un túnel VPN activo.");
   }
-  private void enterLine(String u,String p){new Thread(()->{try{List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p);AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,u,p,connected.expires,connected.maxConnections);runOnUiThread(()->{client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();});}catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show());}}).start();}
+  private void enterLine(String u,String p){
+    final int request=++loginRequest;
+    new Thread(()->{try{
+      List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p);
+      runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;try{
+        SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();
+        client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();
+      }catch(Exception e){new AlertDialog.Builder(this).setTitle("No se pudo guardar la sesión").setMessage("Vuelve a iniciar sesión.").setPositiveButton("Aceptar",null).show();}});
+    }catch(Exception e){runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
+  }
   private void checkDirectMessage(){
     final XtreamClient session=client;if(session==null)return;
     new Thread(()->{try{
@@ -406,9 +417,8 @@ public class MainActivity extends Activity {
       if(group!=null&&!category.isEmpty())for(XtreamClient.Group candidate:connected.categories(category))
         if(candidate.name.equalsIgnoreCase(group.name)){matched=candidate;break;}
       List<Catalog.Item> updated=matched!=null?connected.loadCategory(category,matched.id,matched.name):new ArrayList<>();
-      AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);
       final XtreamClient.Group newGroup=matched;
-      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;client=connected;bindProfile();items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
+      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;try{SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);}catch(Exception e){refreshing=false;Toast.makeText(this,"No se pudo guardar la sesión actualizada.",Toast.LENGTH_LONG).show();return;}AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();client=connected;bindProfile();items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
         searchIndex=null;searchClient=null;activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
         if(refreshButton!=null){refreshButton.setText("100% actualizado");TextView finished=refreshButton;controlHandler.postDelayed(()->{if(refreshButton==finished)finished.setText("Actualizar contenido");},2200);}
       });
@@ -703,7 +713,7 @@ public class MainActivity extends Activity {
     results.addView(grid,new LinearLayout.LayoutParams(-1,-2));
   }
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
-  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text(ProfileReference.managed(XtreamClient.SERVER)?"Conexión HTTPS y sincronización con la web activas.":XtreamClient.SERVER!=null&&XtreamClient.SERVER.startsWith("https://")?"Conexión HTTPS activa.":"El servidor utiliza HTTP sin cifrado.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
+  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text(ProfileReference.managed(client.server())?"Conexión HTTPS y sincronización con la web activas.":client.server()!=null&&client.server().startsWith("https://")?"Conexión HTTPS activa.":"El servidor utiliza HTTP sin cifrado.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
   private void devices(){title("Dispositivos compatibles");body.addView(text("Amazon Fire TV · Firestick · Android TV · TV Box · Celular Android",18,WHITE,false));gap(body,12);body.addView(text("Usa el control remoto en TV o toca las tarjetas en tu celular.",15,MUTED,false));}
   private Catalog.Item nextChannel(Catalog.Item current){
     int start=-1;for(int i=0;i<items.size();i++)if(items.get(i).id.equals(current.id)){start=i;break;}
@@ -797,6 +807,7 @@ public class MainActivity extends Activity {
     playerView=new PlayerView(this);playerView.setUseController(false);playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);playerView.setKeepScreenOn(true);if(vod)VodPlayerControls.configure(playerView);stage.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
     video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);
     final ExoPlayer activePlayer=video;
+    if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile);
     final PlayerView activeView=playerView;
     if(sameSession && resumeTrackParameters!=null)video.setTrackSelectionParameters(resumeTrackParameters);
     resumeTrackParameters=null;
@@ -877,8 +888,9 @@ public class MainActivity extends Activity {
     // Keep the existing surface, aspect ratio, controls and TV focus during recovery.
     playerView.setKeepContentOnPlayerReset(true);
     if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
+    if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}
     video=null;playerView.setPlayer(null);expected.release();
-    video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);attachLiveRecovery(item,video);
+    video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);attachLiveRecovery(item,video);if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile);
     video.setMediaItem(MediaItem.fromUri(item.url));video.prepare();video.play();
   }
   private void setupEpisodePlayback(Catalog.Item item,ExoPlayer activePlayer,FrameLayout stage,boolean restoredEnd){
@@ -942,7 +954,7 @@ public class MainActivity extends Activity {
     trackDialog=PlayerTrackOptions.show(this,player,type,()->{trackDialog=null;if(video==player)showPlayerControls();},value->{if(nativeProfile!=null)nativeProfile.preference(type==C.TRACK_TYPE_AUDIO?"audio":"subtitle",value);});
   }
   @Override protected void onDestroy(){searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
-  private String playbackAccount(){return client!=null?client.username():"demo";}
+  private String playbackAccount(){return client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";}
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
   @Override public boolean dispatchKeyEvent(KeyEvent event){if(playing&&episodeController!=null&&event.getKeyCode()==KeyEvent.KEYCODE_MEDIA_NEXT){if(event.getAction()==KeyEvent.ACTION_DOWN)episodeController.nextNow();return true;}if(playing&&episodeEndView==null&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}
   @Override public boolean onKeyDown(int code,KeyEvent event){if(playing&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_DPAD_UP||code==KeyEvent.KEYCODE_DPAD_DOWN)){showPlayerControls();}return super.onKeyDown(code,event);}
