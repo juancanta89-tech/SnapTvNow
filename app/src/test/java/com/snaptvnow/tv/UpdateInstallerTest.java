@@ -20,6 +20,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadow.api.Shadow;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk=28)
@@ -28,8 +29,8 @@ public class UpdateInstallerTest {
     PackageInfo info=new PackageInfo();info.packageName=name;info.versionCode=version;
     info.signatures=new Signature[]{new Signature(key)};
     if(Build.VERSION.SDK_INT>=28){
-      info.signingInfo=mock(SigningInfo.class);
-      when(info.signingInfo.getApkContentsSigners()).thenReturn(info.signatures);
+      info.signingInfo=Shadow.newInstanceOf(SigningInfo.class);
+      Shadows.shadowOf(info.signingInfo).setSignatures(info.signatures);
     }
     return info;
   }

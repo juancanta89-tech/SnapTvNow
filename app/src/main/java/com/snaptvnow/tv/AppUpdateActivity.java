@@ -82,6 +82,11 @@ public class AppUpdateActivity extends Activity {
     UpdateDownload task=new UpdateDownload();download=task;
     new Thread(()->{
       try {
+        File[] oldFiles=apk.getParentFile().listFiles();
+        if(oldFiles!=null)for(File file:oldFiles){
+          if(!file.equals(apk)&&System.currentTimeMillis()-file.lastModified()>7L*24*60*60*1000
+              &&(file.getName().endsWith(".apk")||file.getName().endsWith(".part")))file.delete();
+        }
         boolean cached=apk.isFile()&&preferences().getInt("code",0)==code
           &&link.equals(preferences().getString("url",""));
         if(!cached)task.download(link,apk,(bytes,total)->postProgress(current,bytes,total));
