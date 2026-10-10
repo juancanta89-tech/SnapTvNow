@@ -11,3 +11,13 @@ La compilación obtiene el motor `ics-openvpn` desde el código público de `mys
 La entrega directa de una contraseña VPN compartida a un dispositivo autorizado permite que alguien con control de ese dispositivo la extraiga. El panel exige una línea activa y entrega el perfil solo por HTTPS, pero eso no equivale a credenciales individuales revocables. Ante una filtración se debe rotar la contraseña Surfshark.
 
 La contraseña Surfshark y la clave de firma de producción no deben añadirse al repositorio ni a los artefactos de compilación.
+
+## Perfil web/app (1.0.11)
+
+Las cuentas conectadas a `https://api.snaptvnow.com` sincronizan favoritos, progreso y preferencias de idioma mediante la API de perfil. Xtream conserva sus IDs globales de reproducción; `smn_profile` aporta la referencia original de servidor/título/episodio usada por la web. La app no envía credenciales de servidores ajenos a la API de SNAP y no guarda tokens en el almacenamiento del perfil. Las sesiones continúan cifradas con Android Keystore.
+
+Los cambios pendientes se conservan por cuenta para reintentar al volver a primer plano. La mezcla usa fechas y tombstones; una respuesta antigua o de una sesión cerrada no cambia la cuenta actual. Progreso remoto en segundos se convierte a milisegundos y no reemplaza un avance local más reciente. Los títulos remotos se consultan al abrir Mi lista/Continuar viendo; las temporadas se limitan a ocho por carga. El contenido no disponible conserva su referencia sin inventar una URL de reproducción.
+
+Los favoritos locales se separan por usuario y servidor. Los antiguos valores globales `fav_*` no tenían propietario y no se asignan automáticamente a otro usuario. Cambiar de cuenta borra los favoritos visibles de la sesión anterior. Cada cliente Xtream conserva su servidor: una petición tardía no utiliza el servidor de otra sesión.
+
+Validación requerida antes de distribuir: ejecutar las pruebas Robolectric de sincronización, aislamiento y reproductor, compilar la variante debug, y probar en teléfono/TV con dos cuentas ficticias y la web. La distribución release conserva el applicationId y requiere la clave de firma de producción existente. No generar una clave alternativa para actualizar una APK instalada.

@@ -41,6 +41,7 @@ final class PlaybackHistory {
           .put("description",item.description).put("extension",extension)
           .put("seriesId",item.seriesId).put("seriesTitle",item.seriesTitle)
           .put("season",item.seasonNumber).put("episode",item.episodeNumber);
+      if(item.profile!=null)data.put("profile",item.profile.json());
       preferences.edit().putString(key(account,item.id)+".metadata",data.toString()).apply();
     }catch(Exception ignored){ /* A malformed optional title must not interrupt playback. */ }
   }
@@ -139,7 +140,7 @@ final class PlaybackHistory {
         if(!id.startsWith("movie")&&!id.startsWith("episode"))continue;
         if(updated==0)continue;boolean done=completed(account,id);if(done&&id.startsWith("movie"))continue;
         long position=position(account,id);if(position<=0&&!done)continue;
-        Catalog.Item item=new Catalog.Item(id,data.getString("title"),data.getString("category"),"",data.optString("description"),"",data.optString("seriesId"),data.optString("seriesTitle"),data.optInt("season"),data.optInt("episode"));
+        Catalog.Item item=new Catalog.Item(id,data.getString("title"),data.getString("category"),"",data.optString("description"),"",data.optString("seriesId"),data.optString("seriesTitle"),data.optInt("season"),data.optInt("episode")).withProfile(ProfileReference.parse(data.optJSONObject("profile")));
         entries.add(new Entry(item,data.optString("extension","mp4"),position,preferences.getLong(k+".duration",0),updated,done));
       }catch(Exception ignored){ /* Skip an unreadable entry; other bookmarks remain available. */ }
     }
@@ -147,6 +148,15 @@ final class PlaybackHistory {
     return entries;
   }
 
+  long updated(String account,String id){return preferences.getLong(key(account,id)+".updated",0);}
+  long duration(String account,String id){return preferences.getLong(key(account,id)+".duration",0);}
+  void applyRemote(String account,Catalog.Item item,JSONObject row){
+    if(item.profile==null||row==null||row.optLong("updatedAt")<=updated(account,item.id))return;
+    if(!item.profile.episodeId.isEmpty()&&!row.optBoolean("deleted")&&!item.profile.episodeId.equals(row.optString("episodeId")))return;
+    remember(account,item);String k=key(account,item.id);SharedPreferences.Editor edit=preferences.edit().putLong(k+".updated",row.optLong("updatedAt")).putBoolean(k+".completed",false);
+    if(row.optBoolean("deleted"))edit.remove(k+".position").remove(k+".duration");else edit.putLong(k+".position",row.optLong("time")*1000).putLong(k+".duration",row.optLong("duration")*1000);
+    edit.apply();
+  }
   private long nextTime(){long time=Math.max(System.currentTimeMillis(),preferences.getLong("clock",0)+1);preferences.edit().putLong("clock",time).apply();return time;}
   static String time(long ms){long seconds=Math.max(0,ms)/1000;return seconds>=3600?String.format(Locale.ROOT,"%d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60):String.format(Locale.ROOT,"%d:%02d",seconds/60,seconds%60);}
 

@@ -110,6 +110,50 @@ public class MainActivity extends Activity {
   private final java.util.concurrent.ExecutorService searchExecutor=java.util.concurrent.Executors.newSingleThreadExecutor();
   private AlertDialog trackDialog;
   private TrackSelectionParameters resumeTrackParameters;
+  private AccountFavorites accountFavorites;
+  private NativeProfileSync nativeProfile;
+  private String favoriteAccount="";
+  private int profileGeneration;
+  private Runnable profileTick;
+  private boolean profileHydrating;
+  private final java.util.Set<String> hydratedProfiles=new java.util.HashSet<>();
+  private void bindProfile(){
+    closeProfile();favoriteAccount=AccountFavorites.scope(client!=null?client.server():"demo",playbackAccount());favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
+    final int generation=profileGeneration;
+    nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;applyProfiles();if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();}));
+    if(nativeProfile!=null){nativeProfile.refresh();profileTick=new Runnable(){int ticks;public void run(){if(generation!=profileGeneration||nativeProfile==null)return;if(vodSession!=null){vodSession.saveNow();nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(++ticks%8==0)nativeProfile.refresh();controlHandler.postDelayed(this,15000);}};controlHandler.postDelayed(profileTick,15000);}
+  }
+  private void closeProfile(){profileGeneration++;profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
+  private void applyProfiles(){
+    if(nativeProfile==null)return;
+    for(Catalog.Item item:seen.values())applyProfile(item);
+    accountFavorites.save(favoriteAccount,favorites);
+    if(video!=null)PlayerTrackPreferences.apply(video,nativeProfile);
+  }
+  private void applyProfile(Catalog.Item item){
+    if(nativeProfile==null||item.profile==null)return;
+    org.json.JSONObject favorite=nativeProfile.record("favorite",item.profile);if(favorite!=null&&!item.id.startsWith("episode")){if(favorite.optBoolean("deleted"))favorites.remove(item.id);else favorites.add(item.id);}
+    if(currentItem==null||!currentItem.id.equals(item.id)||!playing)playbackHistory.applyRemote(playbackAccount(),item,nativeProfile.record("progress",item.profile));
+    nativeProfile.progress(item,playbackHistory,playbackAccount());
+  }
+  private void hydrateProfiles(){
+    if(nativeProfile==null||profileHydrating||client==null)return;
+    final NativeProfileSync sync=nativeProfile;final XtreamClient session=client;final int generation=profileGeneration;
+    final java.util.Map<String,org.json.JSONObject> wanted=new java.util.LinkedHashMap<>();
+    for(org.json.JSONObject row:sync.snapshot())if(!row.optBoolean("deleted")&&!row.optString("kind").equals("preference")&&!hydratedProfiles.contains(row.optString("key"))){if(row.optString("kind").equals("progress")||!wanted.containsKey(row.optString("key")))wanted.put(row.optString("key"),row);}
+    if(wanted.isEmpty())return;profileHydrating=true;
+    new Thread(()->{List<Catalog.Item> found=new ArrayList<>();boolean success=true;try{
+      for(CatalogSearch.Scope scope:new CatalogSearch.Scope[]{CatalogSearch.Scope.MOVIES,CatalogSearch.Scope.SERIES,CatalogSearch.Scope.CHANNELS}){
+        boolean needed=false;String type=scope==CatalogSearch.Scope.MOVIES?"movie":scope==CatalogSearch.Scope.SERIES?"series":"live";for(org.json.JSONObject row:wanted.values())if(row.optString("type").equals(type))needed=true;if(!needed)continue;
+        int seriesCount=0;for(Catalog.Item item:session.loadAll(scope))if(item.profile!=null&&wanted.containsKey(item.profile.key())){
+          found.add(item);org.json.JSONObject row=wanted.get(item.profile.key());
+          if(type.equals("series")&&!row.optString("episodeId").isEmpty()&&seriesCount++<8){for(Catalog.Item episode:session.episodes(item))if(episode.profile!=null&&episode.profile.episodeId.equals(row.optString("episodeId")))found.add(episode);}
+        }
+      }
+    }catch(Exception ignored){success=false;}final boolean complete=success;
+    runOnUiThread(()->{if(generation!=profileGeneration||client!=session||nativeProfile!=sync||isFinishing()||isDestroyed())return;profileHydrating=false;hydratedProfiles.addAll(wanted.keySet());if(!complete)Toast.makeText(this,"No se pudieron cargar todos los títulos sincronizados. Usa Actualizar en esta pantalla para reintentar.",Toast.LENGTH_LONG).show();for(Catalog.Item item:found){seen.put(item.id,item);applyProfile(item);}accountFavorites.save(favoriteAccount,favorites);if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();});
+    }).start();
+  }
   private boolean television(){return (getResources().getConfiguration().uiMode&Configuration.UI_MODE_TYPE_MASK)==Configuration.UI_MODE_TYPE_TELEVISION||getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK);}
   private int catalogWindowWidth(){int width=getResources().getConfiguration().screenWidthDp;return width>0?width:Math.round(getResources().getDisplayMetrics().widthPixels/getResources().getDisplayMetrics().density);}
   private int d(float n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
@@ -121,7 +165,7 @@ public class MainActivity extends Activity {
   private TextView action(String label,Runnable task){TextView v=text(label,15,WHITE,true);v.setGravity(Gravity.CENTER);v.setPadding(d(12),d(7),d(12),d(7));v.setBackground(shape(PANEL,12));v.setFocusable(true);v.setOnClickListener(w->task.run());v.setOnFocusChangeListener((w,focus)->{v.setBackground(focus?gradient(CYAN,0xff10abce,12):shape(PANEL,12));v.setTextColor(focus?NAVY:WHITE);v.setScaleX(focus?1.025f:1f);v.setScaleY(focus?1.025f:1f);});return v;}
   private void title(String s){body.addView(text(s,wide?25:22,WHITE,true));gap(body,12);}
   @Override public void onCreate(Bundle b){
-    super.onCreate(b);CrashDiagnostics.install(this);prefs=getSharedPreferences("demo",MODE_PRIVATE);playbackHistory=new PlaybackHistory(this);VpnTunnel.initialize(this);
+    super.onCreate(b);CrashDiagnostics.install(this);prefs=getSharedPreferences("demo",MODE_PRIVATE);playbackHistory=new PlaybackHistory(this);accountFavorites=new AccountFavorites(this);VpnTunnel.initialize(this);
     final String previousCrash=CrashDiagnostics.consume(this);
     TextView loading=text("SNAPTVNOW\nConectando…",23,CYAN,true);
     loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(NAVY);setContentView(loading);
@@ -137,9 +181,9 @@ public class MainActivity extends Activity {
       }catch(Exception e){error=e.getMessage();}
       final XtreamClient resolved=restored;final String problem=error;
       runOnUiThread(()->{
-        client=resolved;logged=client!=null;
+        client=resolved;logged=client!=null;bindProfile();
         if(logged)items=new ArrayList<>();
-        for(Catalog.Item i:items)if(prefs.getBoolean("fav_"+i.id,false))favorites.add(i.id);
+        for(Catalog.Item i:items)seen.put(i.id,i);
         render();
         if(previousCrash!=null)new AlertDialog.Builder(this).setTitle("Diagnóstico VPN")
           .setMessage(previousCrash).setPositiveButton("Copiar",(dialog,which)->{
@@ -199,7 +243,7 @@ public class MainActivity extends Activity {
       LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);bar.addView(button,lp);
     }
   }
-  private void releaseVideo(){episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
+  private void releaseVideo(){episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
   private void brand(LinearLayout holder,int size){TextView t=text("SNAPTVNOW",size,CYAN,true);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t);}
   private void navigation(LinearLayout holder,boolean horizontal){for(int i=0;i<SECTIONS.length;i++){String s=SECTIONS[i],label=ICONS[i]+"  "+s;TextView t=action(label,()->{section=s;render();});t.setTextSize(horizontal?13:14);t.setGravity(horizontal?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(s.equals(section)){t.setBackground(gradient(0xff106580,0xff0b354e,12));t.setTextColor(CYAN);}LinearLayout.LayoutParams lp=horizontal?new LinearLayout.LayoutParams(d(105),d(46)):new LinearLayout.LayoutParams(-1,d(49));lp.setMargins(0,0,horizontal?d(5):0,horizontal?0:d(4));holder.addView(t,lp);if(s.equals(section))initialFocus=t;}}
   private void content(LinearLayout holder){
@@ -287,7 +331,7 @@ public class MainActivity extends Activity {
     if(VpnTunnel.disconnect(this))Toast.makeText(this,"Desconectando VPN…",Toast.LENGTH_SHORT).show();
     else showVpnError("No hay un túnel VPN activo.");
   }
-  private void enterLine(String u,String p){new Thread(()->{try{List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p);AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,u,p,connected.expires,connected.maxConnections);runOnUiThread(()->{client=connected;items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();});}catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show());}}).start();}
+  private void enterLine(String u,String p){new Thread(()->{try{List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p);AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,u,p,connected.expires,connected.maxConnections);runOnUiThread(()->{client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();});}catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show());}}).start();}
   private void checkDirectMessage(){
     final XtreamClient session=client;if(session==null)return;
     new Thread(()->{try{
@@ -310,7 +354,7 @@ public class MainActivity extends Activity {
   private void respondDirect(XtreamClient session,int id,boolean cancel){
     new Thread(()->{try{
       DirectMessages.request(session,cancel?"cancel":"ok",id);
-      runOnUiThread(()->{if(cancel){SessionStore.clear(this);client=null;logged=false;finishAndRemoveTask();}else checkDirectMessage();});
+      runOnUiThread(()->{if(cancel){closeProfile();SessionStore.clear(this);favorites.clear();client=null;logged=false;finishAndRemoveTask();}else checkDirectMessage();});
     }catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo registrar la respuesta")
       .setMessage("Revisa tu conexión y vuelve a intentarlo.")
       .setPositiveButton("Reintentar",(d,w)->respondDirect(session,id,cancel)).show());}}).start();
@@ -334,12 +378,12 @@ public class MainActivity extends Activity {
   }
   @Override protected void onPause(){
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}
-    if(vodSession!=null)vodSession.saveNow();
+    if(vodSession!=null){vodSession.saveNow();if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}
     super.onPause();
   }
   @Override protected void onResume(){
     super.onResume();
-    UpdateChecker.check(this);
+    UpdateChecker.check(this);if(nativeProfile!=null)nativeProfile.refresh();
     if(logged&&section.equals("Inicio"))scheduleAdvertisement();
   }
   private void loadAdvertisement(){
@@ -355,20 +399,20 @@ public class MainActivity extends Activity {
     if(refreshing)return;
     if(client==null){loadAdvertisement();Toast.makeText(this,"Conecta una línea para actualizar contenido",Toast.LENGTH_LONG).show();return;}
     refreshing=true;if(refreshButton!=null)refreshButton.setText("Actualizando…");
-    final XtreamClient.Group group=activeGroup;final String category=activeGroupSection;
+    final XtreamClient session=client;final int generation=profileGeneration;final XtreamClient.Group group=activeGroup;final String category=activeGroupSection;
     new Thread(()->{try{
-      List<String> servers=AppConfig.load(this);XtreamClient connected=client.reconnect(servers);
+      List<String> servers=AppConfig.load(this);XtreamClient connected=session.reconnect(servers);
       XtreamClient.Group matched=null;
       if(group!=null&&!category.isEmpty())for(XtreamClient.Group candidate:connected.categories(category))
         if(candidate.name.equalsIgnoreCase(group.name)){matched=candidate;break;}
       List<Catalog.Item> updated=matched!=null?connected.loadCategory(category,matched.id,matched.name):new ArrayList<>();
       AppConfig.rememberWorking(this,XtreamClient.SERVER);SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);
       final XtreamClient.Group newGroup=matched;
-      runOnUiThread(()->{client=connected;items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
+      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;client=connected;bindProfile();items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
         searchIndex=null;searchClient=null;activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
         if(refreshButton!=null){refreshButton.setText("100% actualizado");TextView finished=refreshButton;controlHandler.postDelayed(()->{if(refreshButton==finished)finished.setText("Actualizar contenido");},2200);}
       });
-    }catch(Exception e){runOnUiThread(()->{refreshing=false;if(refreshButton!=null)refreshButton.setText("Actualizar contenido");new AlertDialog.Builder(this).setTitle("No se pudo actualizar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
+    }catch(Exception e){runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;refreshing=false;if(refreshButton!=null)refreshButton.setText("Actualizar contenido");new AlertDialog.Builder(this).setTitle("No se pudo actualizar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
   }
   private void hero(String headline,String sub,Runnable target){
     FrameLayout frame=new FrameLayout(this);frame.setBackgroundResource(R.drawable.entertainment_hero);frame.setClipToOutline(true);body.addView(frame,new LinearLayout.LayoutParams(-1,d(wide?230:260)));
@@ -404,8 +448,10 @@ public class MainActivity extends Activity {
     gap(body,12);body.addView(text(client==null?"Vista de demostración. Conecta una línea para consultar su catálogo.":"Explora las categorías de tu línea para ver canales y títulos disponibles.",13,MUTED,false));
   }
   private void continueWatching(boolean preview){
+    if(!preview)hydrateProfiles();
     if(preview||!television())title("Continuar viendo");
     if(!preview){
+      if(nativeProfile!=null){body.addView(action("Actualizar progreso",()->{hydratedProfiles.clear();nativeProfile.refresh();hydrateProfiles();}));gap(body,10);}
       List<PlaybackHistory.Entry> all=playbackHistory.recent(playbackAccount());int movies=0;for(PlaybackHistory.Entry entry:all)if(entry.item.id.startsWith("movie"))movies++;
       LinearLayout filters=new LinearLayout(this);body.addView(filters);String[] names={"Todo · "+all.size(),"Películas · "+movies,"Series · "+(all.size()-movies)};PlaybackHistory.Kind[] kinds=PlaybackHistory.Kind.values();
       for(int index=0;index<kinds.length;index++){
@@ -467,10 +513,10 @@ public class MainActivity extends Activity {
     if(!items.isEmpty()){gap(body,20);title("Explorar contenido");catalogRow(items.subList(0,Math.min(20,items.size())));}
   }
   private void favoritesPage(){
-    title("Mi lista");List<Catalog.Item> matches=new ArrayList<>();
-    for(Catalog.Item item:seen.values())if(favorites.contains(item.id))matches.add(item);
-    if(client==null)for(Catalog.Item item:items)if(favorites.contains(item.id)&&!matches.contains(item))matches.add(item);
-    if(matches.isEmpty()){body.addView(text("Mantén pulsada una portada para añadirla a Mi lista.",15,MUTED,false));return;}
+    hydrateProfiles();title("Mi lista");if(nativeProfile!=null){body.addView(action("Actualizar Mi lista",()->{hydratedProfiles.clear();nativeProfile.refresh();hydrateProfiles();}));gap(body,10);}List<Catalog.Item> matches=new ArrayList<>();
+    for(Catalog.Item item:seen.values())if(!item.id.startsWith("episode")&&favorites.contains(favoriteId(item)))matches.add(item);
+    if(client==null)for(Catalog.Item item:items)if(favorites.contains(favoriteId(item))&&!matches.contains(item))matches.add(item);
+    if(matches.isEmpty()){body.addView(text("Mantén pulsada una portada para añadirla a Mi lista. Los favoritos sincronizados se cargan al abrir esta pantalla.",15,MUTED,false));return;}
     catalogRow(matches);
   }
   private void cards(String[] names,String[] icons,int[] colors){
@@ -526,7 +572,14 @@ public class MainActivity extends Activity {
       }
     }
   }
-  private void loadGroup(String requested,XtreamClient.Group group){body.removeAllViews();title(group.name);body.addView(text("Cargando contenido…",15,MUTED,false));new Thread(()->{try{List<Catalog.Item> loaded=client.loadCategory(requested,group.id,group.name);runOnUiThread(()->{if(!section.equals(requested))return;items=loaded;for(Catalog.Item item:loaded){seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);}loadedSection=requested;activeGroup=group;activeGroupSection=requested;render();});}catch(Exception e){runOnUiThread(()->new AlertDialog.Builder(this).setTitle("No se pudo cargar la categoría").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show());}}).start();}
+  private void loadGroup(String requested,XtreamClient.Group group){
+    final XtreamClient session=client;final int generation=profileGeneration;if(session==null)return;
+    body.removeAllViews();title(group.name);body.addView(text("Cargando contenido…",15,MUTED,false));
+    new Thread(()->{try{List<Catalog.Item> loaded=session.loadCategory(requested,group.id,group.name);runOnUiThread(()->{
+      if(generation!=profileGeneration||client!=session||!section.equals(requested)||isFinishing()||isDestroyed())return;
+      items=loaded;for(Catalog.Item item:loaded){seen.put(item.id,item);applyProfile(item);}accountFavorites.save(favoriteAccount,favorites);loadedSection=requested;activeGroup=group;activeGroupSection=requested;render();
+    });}catch(Exception e){runOnUiThread(()->{if(generation!=profileGeneration||client!=session||isFinishing()||isDestroyed())return;new AlertDialog.Builder(this).setTitle("No se pudo cargar la categoría").setMessage("Revisa tu conexión y vuelve a intentarlo.").setPositiveButton("Aceptar",null).show();});}}).start();
+  }
   private void catalog(){title(section);if(client!=null&&!section.equals("Mi lista")){TextView choose=action("Cambiar categoría",()->{loadedSection="";render();});body.addView(choose,new LinearLayout.LayoutParams(d(190),d(44)));gap(body,12);}List<Catalog.Item> matches=new ArrayList<>();for(Catalog.Item i:items)if(i.category.equals(section)||section.equals("TV en vivo")&&(i.category.equals("Deportes")||i.category.equals("PPV HOY"))||section.equals("Mi lista")&&favorites.contains(i.id))matches.add(i);if(matches.isEmpty()){body.addView(text("Aún no hay títulos en esta sección.",16,MUTED,false));return;}body.addView(text(client==null?"Contenido de demostración · selecciona una tarjeta":"Contenido de tu línea · selecciona una tarjeta",14,MUTED,false));gap(body,12);if(section.equals("TV en vivo")||section.equals("PPV HOY"))catalogGrid(matches);else catalogRow(matches);}
   private void catalogGrid(List<Catalog.Item> list){
     CatalogCardGrid grid=new CatalogCardGrid(this,list,television(),catalogWindowWidth(),item->poster(item,PANEL,item.id.startsWith("live")));
@@ -534,7 +587,7 @@ public class MainActivity extends Activity {
   }
   private void catalogRow(List<Catalog.Item> list){catalogGrid(list);}
   private FrameLayout poster(Catalog.Item item,int shade,boolean live){
-      if(live)return new ChannelCard(this,item,favorites.contains(item.id),()->openItem(item),()->{toggleFavorite(item);if(section.equals("Mi lista"))render();},()->detail(item));
+      if(live)return new ChannelCard(this,item,favorites.contains(favoriteId(item)),()->openItem(item),()->{toggleFavorite(item);if(section.equals("Mi lista"))render();},()->detail(item));
       FrameLayout card=new FrameLayout(this);card.setBackground(gradient(shade,PANEL,12));card.setClipToOutline(true);
       ImageView art=new ImageView(this);art.setScaleType(ImageView.ScaleType.CENTER_CROP);card.addView(art,new FrameLayout.LayoutParams(-1,-1));Artwork.into(art,item.artwork);
       LinearLayout caption=col();caption.setPadding(d(9),d(6),d(8),d(8));caption.setBackground(gradient(0x66071729,0xee071729,9));
@@ -542,7 +595,7 @@ public class MainActivity extends Activity {
       TextView type=text(live?"●  EN VIVO":item.category.toUpperCase(Locale.ROOT),10,CYAN,true);caption.addView(type);
       if(item.id.startsWith("movie")){long position=playbackHistory.position(playbackAccount(),item.id);if(position>0){TextView resume=text("Continuar · "+PlaybackHistory.time(position),11,CYAN,true);resume.setSingleLine(true);resume.setEllipsize(TextUtils.TruncateAt.END);caption.addView(resume);}}
       TextView name=text(item.title,14,WHITE,true);name.setMaxLines(2);name.setEllipsize(android.text.TextUtils.TruncateAt.END);caption.addView(name);
-      TextView save=action(favorites.contains(item.id)?"♥":"♡",()->{toggleFavorite(item);render();});save.setTextSize(20);
+      TextView save=action(favorites.contains(favoriteId(item))?"♥":"♡",()->{toggleFavorite(item);render();});save.setTextSize(20);
       FrameLayout.LayoutParams saveParams=new FrameLayout.LayoutParams(d(42),d(40),Gravity.TOP|Gravity.RIGHT);saveParams.setMargins(0,d(5),d(5),0);card.addView(save,saveParams);
       card.setFocusable(true);card.setOnClickListener(v->openItem(item));card.setOnLongClickListener(v->{detail(item);return true;});
       card.setOnFocusChangeListener((v,focus)->{card.setBackground(focus?gradient(CYAN,shade,12):gradient(shade,PANEL,12));card.setScaleX(focus?1.04f:1f);card.setScaleY(focus?1.04f:1f);});
@@ -569,7 +622,7 @@ public class MainActivity extends Activity {
       });
     }catch(Exception error){runOnUiThread(()->{if(client==session&&body==origin&&!isFinishing()&&!isDestroyed())Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show();});}}).start();
   }
-  private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{if(!favorites.add(i.id))favorites.remove(i.id);prefs.edit().putBoolean("fav_"+i.id,favorites.contains(i.id)).apply();render();}).setNegativeButton("Cerrar",null).show();}
+  private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{toggleFavorite(i);render();}).setNegativeButton("Cerrar",null).show();}
   private void openSearch(){
     if(!section.equals("Buscar")){searchOrigin=section;searchScope=CatalogSearch.Scope.forSection(section,searchScope);query="";}
     section="Buscar";render();
@@ -637,7 +690,7 @@ public class MainActivity extends Activity {
     playbackHistory.rememberBookmarks(playbackAccount(),matches);
     results.removeAllViews();
     CatalogCardGrid grid=new CatalogCardGrid(this,matches,television(),catalogWindowWidth(),item->{
-      seen.put(item.id,item);if(prefs.getBoolean("fav_"+item.id,false))favorites.add(item.id);
+      seen.put(item.id,item);applyProfile(item);
       LinearLayout cell=col();
       FrameLayout card=poster(item,PANEL,scope==CatalogSearch.Scope.CHANNELS);cell.addView(card,new LinearLayout.LayoutParams(-1,0,1));
       card.setOnClickListener(v->{
@@ -650,7 +703,7 @@ public class MainActivity extends Activity {
     results.addView(grid,new LinearLayout.LayoutParams(-1,-2));
   }
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
-  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text("Seguridad: el proveedor utiliza HTTP sin cifrado; las credenciales pueden ser visibles en la red.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{SessionStore.clear(this);logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
+  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text(ProfileReference.managed(XtreamClient.SERVER)?"Conexión HTTPS y sincronización con la web activas.":XtreamClient.SERVER!=null&&XtreamClient.SERVER.startsWith("https://")?"Conexión HTTPS activa.":"El servidor utiliza HTTP sin cifrado.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
   private void devices(){title("Dispositivos compatibles");body.addView(text("Amazon Fire TV · Firestick · Android TV · TV Box · Celular Android",18,WHITE,false));gap(body,12);body.addView(text("Usa el control remoto en TV o toca las tarjetas en tu celular.",15,MUTED,false));}
   private Catalog.Item nextChannel(Catalog.Item current){
     int start=-1;for(int i=0;i<items.size();i++)if(items.get(i).id.equals(current.id)){start=i;break;}
@@ -721,10 +774,11 @@ public class MainActivity extends Activity {
     if(hideControls!=null)controlHandler.removeCallbacks(hideControls);
     hideControls=()->{if(playerControls!=null)playerControls.setVisibility(View.GONE);};controlHandler.postDelayed(hideControls,5000);
   }
+  private String favoriteId(Catalog.Item item){return item.id.startsWith("episode")&&!item.seriesId.isEmpty()?item.seriesId:item.id;}
   private void toggleFavorite(Catalog.Item item){
-    if(!favorites.add(item.id))favorites.remove(item.id);
-    prefs.edit().putBoolean("fav_"+item.id,favorites.contains(item.id)).apply();
-    Toast.makeText(this,favorites.contains(item.id)?"Añadido a Mi lista":"Quitado de Mi lista",Toast.LENGTH_SHORT).show();
+    String id=favoriteId(item);if(!favorites.add(id))favorites.remove(id);
+    accountFavorites.save(favoriteAccount,favorites);if(nativeProfile!=null)nativeProfile.favorite(item,favorites.contains(favoriteId(item)));
+    Toast.makeText(this,favorites.contains(favoriteId(item))?"Añadido a Mi lista":"Quitado de Mi lista",Toast.LENGTH_SHORT).show();
   }
   private void play(Catalog.Item item){
     if(item.url==null||item.url.isEmpty()){Toast.makeText(this,"Este título no tiene enlace de reproducción",Toast.LENGTH_LONG).show();return;}
@@ -741,7 +795,7 @@ public class MainActivity extends Activity {
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
     FrameLayout stage=new FrameLayout(this);stage.setTag("player_stage");stage.setBackgroundColor(Color.BLACK);setContentView(stage);
     playerView=new PlayerView(this);playerView.setUseController(false);playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);playerView.setKeepScreenOn(true);if(vod)VodPlayerControls.configure(playerView);stage.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
-    video=createPlayer();playerView.setPlayer(video);
+    video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);
     final ExoPlayer activePlayer=video;
     final PlayerView activeView=playerView;
     if(sameSession && resumeTrackParameters!=null)video.setTrackSelectionParameters(resumeTrackParameters);
@@ -824,7 +878,7 @@ public class MainActivity extends Activity {
     playerView.setKeepContentOnPlayerReset(true);
     if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
     video=null;playerView.setPlayer(null);expected.release();
-    video=createPlayer();playerView.setPlayer(video);attachLiveRecovery(item,video);
+    video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);attachLiveRecovery(item,video);
     video.setMediaItem(MediaItem.fromUri(item.url));video.prepare();video.play();
   }
   private void setupEpisodePlayback(Catalog.Item item,ExoPlayer activePlayer,FrameLayout stage,boolean restoredEnd){
@@ -885,9 +939,9 @@ public class MainActivity extends Activity {
   private void openTrackOptions(Player player,int type){
     if(video!=player)return;
     if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();}
-    trackDialog=PlayerTrackOptions.show(this,player,type,()->{trackDialog=null;if(video==player)showPlayerControls();});
+    trackDialog=PlayerTrackOptions.show(this,player,type,()->{trackDialog=null;if(video==player)showPlayerControls();},value->{if(nativeProfile!=null)nativeProfile.preference(type==C.TRACK_TYPE_AUDIO?"audio":"subtitle",value);});
   }
-  @Override protected void onDestroy(){searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();super.onDestroy();}
+  @Override protected void onDestroy(){searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
   private String playbackAccount(){return client!=null?client.username():"demo";}
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
   @Override public boolean dispatchKeyEvent(KeyEvent event){if(playing&&episodeController!=null&&event.getKeyCode()==KeyEvent.KEYCODE_MEDIA_NEXT){if(event.getAction()==KeyEvent.ACTION_DOWN)episodeController.nextNow();return true;}if(playing&&episodeEndView==null&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}

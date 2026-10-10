@@ -16,6 +16,7 @@ import java.util.Locale;
 
 /** Select only the media's real tracks, without rebuilding the player or seeking. */
 final class PlayerTrackOptions {
+  interface Selection {void chosen(String value);}
   static final class Choice {
     final TrackGroup group;
     final int index;
@@ -65,7 +66,8 @@ final class PlayerTrackOptions {
     player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
         .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,true).build());
   }
-  static AlertDialog show(Activity activity,Player player,int type,Runnable dismissed) {
+  static AlertDialog show(Activity activity,Player player,int type,Runnable dismissed) {return show(activity,player,type,dismissed,value->{});}
+  static AlertDialog show(Activity activity,Player player,int type,Runnable dismissed,Selection chosen) {
     String title=type==C.TRACK_TYPE_AUDIO?"Audio":"Subtítulos";
     List<Choice> tracks=choices(player.getCurrentTracks(),type);
     if(tracks.isEmpty()) {
@@ -90,6 +92,7 @@ final class PlayerTrackOptions {
       else if(!select(player,type,tracks.get(index-offset))) {
         Toast.makeText(activity,"Esta pista no está disponible en este dispositivo.",Toast.LENGTH_LONG).show();return;
       }
+      String value=index<offset?(type==C.TRACK_TYPE_TEXT&&index==0?"off":"default"):PlayerTrackPreferences.language(tracks.get(index-offset).group.getFormat(tracks.get(index-offset).index).language);chosen.chosen(value);
       dialog.dismiss();
     });
     return dialog;

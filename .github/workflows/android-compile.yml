@@ -1,7 +1,7 @@
 name: Android source check
 on:
   push:
-    branches: [main]
+    branches: [main, engineering-profile-v43]
   pull_request:
 
 jobs:
