@@ -52,7 +52,9 @@ final class UpdateInstaller {
   }
   static Intent installIntent(Context context,File apk){
     Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".updates",apk);
-    return new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive")
-      .setClipData(ClipData.newRawUri("SNAPTVNOW",uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    Intent intent=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive")
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    intent.setClipData(ClipData.newRawUri("SNAPTVNOW",uri));
+    return intent;
   }
 }
