@@ -2,9 +2,7 @@ package com.snaptvnow.tv;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.Intent;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.os.Build;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
@@ -47,18 +45,16 @@ final class UpdateChecker {
           if(code<=installed)return;
           String name=update.optString("versionName",""),notes=update.optString("notes","");
           String link=update.optString("url","");
-          URL url=new URL(link);
-          if(!url.getProtocol().equals("https")||url.getUserInfo()!=null||!url.getPath().toLowerCase().endsWith(".apk"))return;
+          UpdateDownload.apkUrl(link);
           long lastDismissed=preferences.getLong("dismissed_"+code,0);
           if(System.currentTimeMillis()-lastDismissed<24L*60*60*1000)return;
           activity.runOnUiThread(()->{
             if(activity.isFinishing()||activity.isDestroyed())return;
             new AlertDialog.Builder(activity).setTitle("Actualización disponible · "+name)
-              .setMessage(notes+"\n\nLa descarga se abrirá en el navegador. Android te pedirá confirmar la instalación.")
+              .setMessage(notes+"\n\nSNAPTVNOW descargará la actualización. Al terminar, confirma la instalación en tu dispositivo.")
               .setNegativeButton("Más tarde",(dialog,which)->preferences.edit().putLong("dismissed_"+code,System.currentTimeMillis()).apply())
               .setPositiveButton("Descargar", (dialog,which)->{
-                Intent browser=new Intent(Intent.ACTION_VIEW,Uri.parse(link));
-                try{activity.startActivity(browser);}catch(Exception ignored){}
+                AppUpdateActivity.open(activity,link,code,name);
               }).show();
           });
         }finally{connection.disconnect();}
