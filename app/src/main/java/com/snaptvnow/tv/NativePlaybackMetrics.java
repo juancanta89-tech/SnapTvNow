@@ -23,7 +23,7 @@ final class NativePlaybackMetrics implements Player.Listener {
   void height(int height){quality=height>=1080?"1080":height>=720?"720":"other";}
   JSONObject report(long now,boolean finalReport) throws Exception {
    sample(now);boolean failed=!started&&!failureSent&&(finalReport||errors>0);
-   if(!watch&&!errors&&!failed&&(!started||startSent))return null;
+   if(watch==0&&errors==0&&!failed&&(!started||startSent))return null;
    JSONObject m=new JSONObject().put("report_id",UUID.randomUUID().toString()).put("platform","android").put("type",type).put("server",server).put("quality",quality)
     .put("attempted",!attemptSent).put("started",started&&!startSent).put("failedStart",failed).put("startupMs",started&&!startSent?startup:JSONObject.NULL)
     .put("watchMs",watch).put("stallMs",stall).put("stalls",stalls).put("errors",errors).put("decoded",0).put("dropped",0).put("bytes",JSONObject.NULL);
