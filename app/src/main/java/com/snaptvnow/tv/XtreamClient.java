@@ -126,8 +126,8 @@ public final class XtreamClient {
   }
   public String epg(Catalog.Item channel) throws Exception {
     if(!channel.id.startsWith("live"))return "Guía no disponible";
-    Uri.Builder b=Uri.parse(sourceServer+"/player_api.php").buildUpon().appendQueryParameter("username",username).appendQueryParameter("password",password).appendQueryParameter("action","get_short_epg").appendQueryParameter("stream_id",channel.id.substring(4));
+    Uri.Builder b=Uri.parse(sourceServer+"/player_api.php").buildUpon().appendQueryParameter("username",username).appendQueryParameter("password",password).appendQueryParameter("action","get_short_epg").appendQueryParameter("limit","24").appendQueryParameter("stream_id",channel.id.substring(4));
     HttpURLConnection c=(HttpURLConnection)new URL(b.build().toString()).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(9000);c.setReadTimeout(13000);
-    try {if(c.getResponseCode()!=200)return "Guía no disponible";ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[4096];int n;try(InputStream in=c.getInputStream()){while((n=in.read(buf))!=-1){if(out.size()+n>100000)break;out.write(buf,0,n);}}JSONObject root=new JSONObject(out.toString("UTF-8"));JSONArray list=root.optJSONArray("epg_listings");if(list==null||list.length()==0)return "Guía no disponible";JSONObject first=list.optJSONObject(0);return first==null?"Guía no disponible":first.optString("start","")+"  ·  "+first.optString("title","Programa");}finally{c.disconnect();}
+    try {if(c.getResponseCode()!=200)return "Guía no disponible";ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[4096];int n;try(InputStream in=c.getInputStream()){while((n=in.read(buf))!=-1){if(out.size()+n>100000)throw new Exception("Guía demasiado grande");out.write(buf,0,n);}}JSONObject root=new JSONObject(out.toString("UTF-8"));return EpgGuide.format(root.optJSONArray("epg_listings"),System.currentTimeMillis());}finally{c.disconnect();}
   }
 }

@@ -23,3 +23,5 @@ Los favoritos y el progreso locales se separan por usuario y servidor. El histor
 Validación requerida antes de distribuir: ejecutar las pruebas Robolectric de sincronización, aislamiento y reproductor, compilar la variante debug, y probar en teléfono/TV con dos cuentas ficticias y la web. La distribución release conserva el applicationId y requiere la clave de firma de producción existente. No generar una clave alternativa para actualizar una APK instalada.
 
 El panel distingue métricas web/Android: primer cuadro, tiempo reproduciendo/cargando, cortes y errores. Android no mide bytes ni cuadros decodificados en estos informes. Los informes agregados se reintentan con el mismo identificador, con hasta veinte en memoria; no se guardan con el perfil y se descartan al cerrar la cuenta. No incluyen usuario, dispositivo, título ni URL. No son una medición de facturación.
+
+La guía muestra hasta 24 programas cuando el proveedor los ofrece, decodifica títulos UTF-8/base64, omite programas terminados y marca el actual. Sus errores no interrumpen la reproducción ni se aplican después de cambiar de cuenta.
