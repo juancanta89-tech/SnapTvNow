@@ -1,0 +1,58 @@
+{
+  "verifiedAt": "2026-10-11T18:50:39.929700+00:00",
+  "sourceCommit": "934f044a2231475fe467653e0deaef46b9c41b7c",
+  "runId": 38163498051,
+  "jobId": 114541143359,
+  "artifactId": 11711344562,
+  "archiveSha256": "21f4058ee84dea1178a710df0bddd673e52e6dbc476b1ddfb8471faa29bdeb7d",
+  "file": "SNAPTVNOW-1.0.13.apk",
+  "bytes": 44401069,
+  "sha256": "64c7aa8a424c428cdb296d95234e84cfd9feda5fe4ae9731cf14ea35e0de2d6d",
+  "signerSha256": [
+    "069517313d68df21e9ba3110db2e498e9b42aeb8f3f4553d84953e946cd27165"
+  ],
+  "apkV2SignatureAndContentDigestVerified": true,
+  "productionCertificateMatchesVersion1_0_12": true,
+  "packageMatchesVersion1_0_12": true,
+  "debuggable": false,
+  "manifest": [
+    {
+      "element": "manifest",
+      "attributes": {
+        "versionCode": 42,
+        "versionName": "1.0.13",
+        "compileSdkVersion": 36,
+        "compileSdkVersionCodename": "16",
+        "package": "com.snaptvnow.tv",
+        "platformBuildVersionCode": 36,
+        "platformBuildVersionName": 16
+      }
+    },
+    {
+      "element": "uses-sdk",
+      "attributes": {
+        "minSdkVersion": 23,
+        "targetSdkVersion": 35
+      }
+    },
+    {
+      "element": "application",
+      "attributes": {
+        "theme": 16974382,
+        "label": "SNAPTVNOW",
+        "icon": 2131099796,
+        "allowBackup": false,
+        "banner": 2131099648,
+        "extractNativeLibs": true,
+        "usesCleartextTraffic": true,
+        "networkSecurityConfig": 2131755009,
+        "appComponentFactory": "androidx.core.app.CoreComponentFactory"
+      }
+    }
+  ],
+  "physicalDeviceValidation": "pending; no Android or Fire TV hardware was controlled in this verification",
+  "ciRunConclusion": "success",
+  "ciArchiveDigestMatches": true,
+  "ciApkSha256Matches": true,
+  "ciApksignerV1V2Verified": true
+}

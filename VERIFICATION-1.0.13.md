@@ -1,8 +1,8 @@
 # Validación de MFA y perfil Android / Fire TV
 
-Revisión del 11 de octubre de 2026. Versión preparada: 1.0.13, número interno 42, paquete com.snaptvnow.tv. La firma debe coincidir con la APK 1.0.12 del propietario.
+Revisión del 11 de octubre de 2026. Versión firmada y verificada: 1.0.13, número interno 42, paquete com.snaptvnow.tv. El certificado y paquete coinciden con la APK 1.0.12 del propietario.
 
-El acceso al administrador SNAP en producción se completó hoy con el autenticador del propietario. El MFA ya está activado; no se reemplazó el autenticador ni se renovaron códigos de recuperación. Esto no acredita el MFA de GitHub o Cloudflare.
+El acceso al administrador SNAP en producción se completó hoy con el autenticador del propietario. El MFA ya está activado; no se reemplazó el autenticador ni se renovaron códigos de recuperación. La comprobación del MFA de SNAP es independiente de la configuración de seguridad de GitHub y Cloudflare.
 
 ## Correcciones comprobables
 
@@ -15,7 +15,7 @@ La revisión `934f044a2231475fe467653e0deaef46b9c41b7c` pasó 164 pruebas, sin e
 
 El administrador principal en producción rechazó un acceso con su contraseña correcta y sin segundo factor con `401 mfa_required`. El runtime real workerd/SQLite pasó su ensayo de MFA, revocación de sesiones y almacenamiento de perfil. El servidor staging desplegado pasó diez comprobaciones de perfil entre tres sesiones HTTP independientes más una cuenta distinta; ambas cuentas temporales se eliminaron y se cerraron sus sesiones. Detalles en `remote-profile-verification.json`. Estas sesiones simulaban los mensajes de Android, TV y web: no ejecutaban la APK ni un dispositivo físico.
 
-La [firma de producción de 1.0.13](https://github.com/juancanta89-tech/SnapTvNow/actions/runs/38163498051) espera al revisor obligatorio `juancanta89-tech` del entorno GitHub `production`. No hay todavía una APK 1.0.13 firmada entregada o una actualización publicada en el panel. No se cambiaron las reglas de aprobación ni la clave de firma.
+La [firma de producción de 1.0.13](https://github.com/juancanta89-tech/SnapTvNow/actions/runs/38163498051) fue aprobada por el revisor obligatorio `juancanta89-tech` y terminó correctamente. La APK de producción está disponible para validación del propietario. Se comprobó su firma criptográfica, el resumen del contenido y el certificado de actualización frente a 1.0.12; también coinciden los hashes con el artefacto y los registros de GitHub. El archivo ocupa 44.401.069 bytes. Detalles en `production-apk-verification-1.0.13.json`. La ejecución de firma volvió a ejecutar las pruebas unitarias antes de compilar la versión release.
 
 ## Prueba física pendiente
 
