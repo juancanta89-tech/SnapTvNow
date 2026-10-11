@@ -11,7 +11,11 @@ El acceso al administrador SNAP en producción se completó hoy con el autentica
 - Un refresco con el mismo idioma conserva la pista concreta seleccionada. Cambiar el idioma remoto elimina solo la selección del tipo correspondiente, sin reiniciar ni adelantar el video.
 - «Automático» elimina la preferencia de idioma anterior del tipo seleccionado.
 
-Se añadieron pruebas Robolectric para esos casos. Las pruebas existentes cubren identidad original del catálogo, separación entre usuarios y servicios, progreso en segundos, cambios sin conexión, eliminación remota y respuestas tardías tras cerrar la sesión. Consultar los informes de Android source check y Sign production APK para la revisión exacta; un resultado automatizado no acredita un dispositivo físico.
+La revisión `934f044a2231475fe467653e0deaef46b9c41b7c` pasó 164 pruebas, sin errores, fallos ni omisiones: 11 de perfil nativo, 10 de pistas de audio/subtítulos y 16 de recuperación en directo, además de las demás suites. [Android source check](https://github.com/juancanta89-tech/SnapTvNow/actions/runs/38163498056) compiló la APK debug. Las pruebas existentes cubren identidad original del catálogo, separación entre usuarios y servicios, progreso en segundos, cambios sin conexión, eliminación remota y respuestas tardías tras cerrar la sesión. Detalles en `native-test-verification.json`.
+
+El administrador principal en producción rechazó un acceso con su contraseña correcta y sin segundo factor con `401 mfa_required`. El runtime real workerd/SQLite pasó su ensayo de MFA, revocación de sesiones y almacenamiento de perfil. El servidor staging desplegado pasó diez comprobaciones de perfil entre tres sesiones HTTP independientes más una cuenta distinta; ambas cuentas temporales se eliminaron y se cerraron sus sesiones. Detalles en `remote-profile-verification.json`. Estas sesiones simulaban los mensajes de Android, TV y web: no ejecutaban la APK ni un dispositivo físico.
+
+La [firma de producción de 1.0.13](https://github.com/juancanta89-tech/SnapTvNow/actions/runs/38163498051) espera al revisor obligatorio `juancanta89-tech` del entorno GitHub `production`. No hay todavía una APK 1.0.13 firmada entregada o una actualización publicada en el panel. No se cambiaron las reglas de aprobación ni la clave de firma.
 
 ## Prueba física pendiente
 

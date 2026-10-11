@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-11",
+  "scope": "Deployed staging API roundtrip with independent simulated Android, TV and web HTTP sessions. Not physical-device or native-APK execution.",
+  "checks": [
+    {
+      "check": "favorite_add_visible_to_web_and_TV_API_sessions",
+      "passed": true
+    },
+    {
+      "check": "favorite_remove_visible_to_Android_and_web_API_sessions",
+      "passed": true
+    },
+    {
+      "check": "older_offline_add_cannot_restore_removed_favorite",
+      "passed": true
+    },
+    {
+      "check": "progress_121_seconds_visible_to_TV_API_session",
+      "passed": true
+    },
+    {
+      "check": "progress_245_seconds_visible_to_Android_and_web_API_sessions",
+      "passed": true
+    },
+    {
+      "check": "English_audio_and_subtitles_off_visible_to_web_and_TV_API_sessions",
+      "passed": true
+    },
+    {
+      "check": "automatic_audio_and_Spanish_subtitles_visible_to_Android_API_session",
+      "passed": true
+    },
+    {
+      "check": "different_customer_profile_is_empty",
+      "passed": true
+    },
+    {
+      "check": "logged_out_session_is_revoked",
+      "passed": true
+    },
+    {
+      "check": "another_session_of_same_account_remains_valid",
+      "passed": true
+    },
+    {
+      "check": "temporary_account_deleted",
+      "passed": true
+    },
+    {
+      "check": "temporary_account_deleted",
+      "passed": true
+    }
+  ],
+  "temporaryAccountsRemoved": 2,
+  "productionMFA": {
+    "passwordWithoutFactor": {
+      "http": 401,
+      "error": "mfa_required"
+    },
+    "successfulAuthenticatorLoginPreviouslyObserved": "2026-10-11"
+  },
+  "localPlatformRuntime": {
+    "passed": true,
+    "runtime": "workerd/SQLite",
+    "scope": "MFA enrollment, recovery renewal, authenticator replacement, administrator password change, profile storage and session revocation with synthetic data"
+  }
+}
