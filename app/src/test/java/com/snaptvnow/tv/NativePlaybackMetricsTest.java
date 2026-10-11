@@ -18,4 +18,20 @@ public class NativePlaybackMetricsTest {
  @Test public void stoppingBeforeTheFirstFrameIsCounted()throws Exception{
   NativePlaybackMetrics.Counters c=new NativePlaybackMetrics.Counters(new ProfileReference("series","123","ccf","88"),0);assertTrue(c.report(3000,true).getBoolean("failedStart"));
  }
+ @Test public void frameAndTrafficReportsContainDeltasWithoutDoubleCounting()throws Exception{
+  NativePlaybackMetrics.Counters c=new NativePlaybackMetrics.Counters(new ProfileReference("live","123","ccf",""),0);
+  c.firstFrame(1000);c.frames(90,10);c.transfer(12000);JSONObject first=c.report(1000,false);
+  assertEquals(100,first.getLong("decoded"));assertEquals(10,first.getLong("dropped"));assertEquals(12000,first.getLong("bytes"));
+  c.transfer(12000);assertNull(c.report(2000,false));c.frames(48,2);c.transfer(20000);JSONObject second=c.report(3000,false);
+  assertEquals(50,second.getLong("decoded"));assertEquals(2,second.getLong("dropped"));assertEquals(8000,second.getLong("bytes"));assertFalse(second.getBoolean("started"));
+ }
+ @Test public void missingTrafficMeasurementIsNotReportedAsMeasuredZero()throws Exception{
+  NativePlaybackMetrics.Counters c=new NativePlaybackMetrics.Counters(new ProfileReference("movie","123","ccf",""),0);
+  c.firstFrame(1000);assertTrue(c.report(1000,false).isNull("bytes"));
+ }
+ @Test public void measuredCountersStayWithinTheExistingServerContract()throws Exception{
+  NativePlaybackMetrics.Counters c=new NativePlaybackMetrics.Counters(new ProfileReference("live","123","ccf",""),0);
+  c.frames(150000,50000);c.transfer(300000000);JSONObject row=c.report(1000,false);
+  assertEquals(100000,row.getLong("decoded"));assertTrue(row.getLong("dropped")<=row.getLong("decoded"));assertEquals(250000000,row.getLong("bytes"));
+ }
 }

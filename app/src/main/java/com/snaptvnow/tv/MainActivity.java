@@ -78,6 +78,7 @@ public class MainActivity extends Activity {
   private LinearLayout root, body;
   private ExoPlayer video;
   private NativePlaybackMetrics playbackMetrics;
+  private PlaybackTransfer playbackTransfer;
   private PlayerView playerView;
   private FrameLayout playerControls;
   private final android.os.Handler controlHandler=new android.os.Handler(android.os.Looper.getMainLooper());
@@ -807,7 +808,7 @@ public class MainActivity extends Activity {
     playerView=new PlayerView(this);playerView.setUseController(false);playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);playerView.setKeepScreenOn(true);if(vod)VodPlayerControls.configure(playerView);stage.addView(playerView,new FrameLayout.LayoutParams(-1,-1));
     video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);
     final ExoPlayer activePlayer=video;
-    if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile);
+    if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile,playbackTransfer);
     final PlayerView activeView=playerView;
     if(sameSession && resumeTrackParameters!=null)video.setTrackSelectionParameters(resumeTrackParameters);
     resumeTrackParameters=null;
@@ -866,12 +867,18 @@ public class MainActivity extends Activity {
     if(EpisodeQueue.isEpisode(item))setupEpisodePlayback(item,activePlayer,stage,restoreEpisodeEnd);
   }
   ExoPlayer createPlayer(){
+    playbackTransfer=new PlaybackTransfer();
+    androidx.media3.datasource.DefaultHttpDataSource.Factory http=new androidx.media3.datasource.DefaultHttpDataSource.Factory()
+        .setConnectTimeoutMs(10_000).setReadTimeoutMs(20_000);
+    androidx.media3.datasource.DefaultDataSource.Factory data=new androidx.media3.datasource.DefaultDataSource.Factory(this,http).setTransferListener(playbackTransfer);
     return new ExoPlayer.Builder(this,new androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
+        .setLoadControl(PlaybackBufferPolicy.create(currentItem!=null&&currentItem.id.startsWith("live")))
+        .setMediaSourceFactory(new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(data))
         .setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),true)
         .setHandleAudioBecomingNoisy(true).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();
   }
   private void attachLiveRecovery(Catalog.Item item,ExoPlayer activePlayer){
-    liveRecovery=new LivePlaybackRecovery(activePlayer,liveRetries,reason->{
+    liveRecovery=new LivePlaybackRecovery(activePlayer,liveRetries,playbackTransfer,reason->{
       if(!playing||currentItem!=item||video!=activePlayer)return;
       if(findingOnline){tryNextOnline(item);return;}
       android.util.Log.w("LiveRecovery",reason); // No stream URL, account or credentials in logs.
@@ -890,7 +897,7 @@ public class MainActivity extends Activity {
     if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
     if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}
     video=null;playerView.setPlayer(null);expected.release();
-    video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);attachLiveRecovery(item,video);if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile);
+    video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);attachLiveRecovery(item,video);if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile,playbackTransfer);
     video.setMediaItem(MediaItem.fromUri(item.url));video.prepare();video.play();
   }
   private void setupEpisodePlayback(Catalog.Item item,ExoPlayer activePlayer,FrameLayout stage,boolean restoredEnd){
