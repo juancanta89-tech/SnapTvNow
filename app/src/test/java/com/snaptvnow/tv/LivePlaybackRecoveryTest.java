@@ -83,10 +83,12 @@ public class LivePlaybackRecoveryTest {
     assertEquals(0,reconnects);
   }
   @Test public void successfulRecoveryResetsBackoffAfterThirtyHealthySeconds(){
-    retries.failures=5;ready();when(player.isPlaying()).thenReturn(true);
+    retries.failures=5;retries.recoveryRequests=3;ready();when(player.isPlaying()).thenReturn(true);
     for(int i=1;i<=32;i++){when(player.getCurrentPosition()).thenReturn(i*1_000L);millis(1_000);}
-    assertEquals(0,retries.failures);recovery.failure("audio_sink_error");millis(250);assertEquals(1,reconnects);
+    assertEquals(0,retries.failures);assertEquals(0,retries.recoveryRequests);recovery.failure("audio_sink_error");millis(250);assertEquals(1,reconnects);
   }
+  @Test public void canceledSoftTimeoutDoesNotSpendAnActualRecoveryAttempt(){millis(15_000);ready();millis(250);assertEquals(0,retries.recoveryRequests);}
+  @Test public void duplicateFatalErrorsCountOneActualRequestAcrossRecreation(){recovery.failure("decoder_error");recovery.failure("duplicate");millis(250);assertEquals(1,retries.recoveryRequests);recovery.close();create();assertEquals(1,retries.recoveryRequests);recovery.failure("decoder_error");millis(500);assertEquals(2,retries.recoveryRequests);}
   @Test public void retryBackoffSurvivesRecreationAndIsBounded(){
     for(int i=0;i<10;i++){long delay=retries.delay();assertTrue(delay>=250 && delay<=8_000);}
     recovery.close();create();assertEquals(10,retries.failures);

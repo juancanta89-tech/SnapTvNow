@@ -3,13 +3,16 @@ import java.util.*;
 public final class Catalog {
  public static final class Item {
   public final String id,title,category,url,description,artwork,seriesId,seriesTitle;
+  final String liveGroupId,epgChannelId;
   public final int seasonNumber,episodeNumber;
   final ProfileReference profile;
   public Item(String id,String title,String category,String url,String description){this(id,title,category,url,description,"");}
   public Item(String id,String title,String category,String url,String description,String artwork){this(id,title,category,url,description,artwork,"","",0,0);}
   public Item(String id,String title,String category,String url,String description,String artwork,String seriesId,String seriesTitle,int seasonNumber,int episodeNumber){this(id,title,category,url,description,artwork,seriesId,seriesTitle,seasonNumber,episodeNumber,null);}
-  Item(String id,String title,String category,String url,String description,String artwork,String seriesId,String seriesTitle,int seasonNumber,int episodeNumber,ProfileReference profile){this.profile=profile;this.id=id;this.title=title;this.category=category;this.url=url;this.description=description;this.artwork=artwork;this.seriesId=seriesId;this.seriesTitle=seriesTitle;this.seasonNumber=seasonNumber;this.episodeNumber=episodeNumber;}
-  Item withProfile(ProfileReference reference){return new Item(id,title,category,url,description,artwork,seriesId,seriesTitle,seasonNumber,episodeNumber,reference);}
+  Item(String id,String title,String category,String url,String description,String artwork,String seriesId,String seriesTitle,int seasonNumber,int episodeNumber,ProfileReference profile){this(id,title,category,url,description,artwork,seriesId,seriesTitle,seasonNumber,episodeNumber,profile,"","");}
+  private Item(String id,String title,String category,String url,String description,String artwork,String seriesId,String seriesTitle,int seasonNumber,int episodeNumber,ProfileReference profile,String liveGroupId,String epgChannelId){this.profile=profile;this.id=id;this.title=title;this.category=category;this.url=url;this.description=description;this.artwork=artwork;this.seriesId=seriesId;this.seriesTitle=seriesTitle;this.seasonNumber=seasonNumber;this.episodeNumber=episodeNumber;this.liveGroupId=liveGroupId;this.epgChannelId=epgChannelId;}
+  Item withProfile(ProfileReference reference){return new Item(id,title,category,url,description,artwork,seriesId,seriesTitle,seasonNumber,episodeNumber,reference,liveGroupId,epgChannelId);}
+  Item withLiveIdentity(String group,String epg){return new Item(id,title,category,url,description,artwork,seriesId,seriesTitle,seasonNumber,episodeNumber,profile,group!=null&&group.matches("[0-9]{1,64}")?group:"",epg!=null&&epg.length()<=512?epg.trim():"");}
  }
  // Public Google demonstration clip. Replace this source with your licensed media API.
  public static final String DEMO_VIDEO="https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";

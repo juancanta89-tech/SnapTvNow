@@ -96,7 +96,9 @@ public final class XtreamClient {
       String path=kind.equals("series")?"":server+"/"+kind+"/"+Uri.encode(username)+"/"+Uri.encode(password)+"/"+id+"."+(kind.equals("live")?"m3u8":ext);
       String artwork=j.optString(kind.equals("series")?"cover":"stream_icon","");if(kind.equals("movie"))artwork=j.optString("stream_icon",j.optString("cover",""));
       String folder=categoryNames.get(j.optString("category_id",""));if(folder==null)folder=section;
-      out.add(new Catalog.Item(kind+id,title,section,path,folder,artwork).withProfile(ProfileReference.managed(server)?ProfileReference.parse(j.optJSONObject("smn_profile")):null));
+      out.add(new Catalog.Item(kind+id,title,section,path,folder,artwork)
+        .withLiveIdentity(kind.equals("live")?j.optString("category_id",""):"",kind.equals("live")?j.optString("epg_channel_id",""):"")
+        .withProfile(ProfileReference.managed(server)?ProfileReference.parse(j.optJSONObject("smn_profile")):null));
     }
     return out;
   }

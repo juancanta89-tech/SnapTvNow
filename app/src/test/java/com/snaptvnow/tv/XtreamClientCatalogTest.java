@@ -14,6 +14,15 @@ import org.robolectric.annotation.Config;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk=28)
 public class XtreamClientCatalogTest {
+  @Test public void preservesLiveIdentityThroughManagedProfileAssignment()throws Exception{
+    JSONObject json=new JSONObject().put("stream_id",1).put("name","ESPN 1080").put("category_id","7").put("epg_channel_id","espn.mx").put("smn_profile",new JSONObject().put("type","live").put("id","1").put("server","provider-a"));
+    Catalog.Item item=XtreamClient.parseItems("https://api.snaptvnow.com","test","test","TV en vivo",new JSONArray().put(json),new HashMap<>()).get(0);
+    assertEquals("7",item.liveGroupId);assertEquals("espn.mx",item.epgChannelId);assertEquals("provider-a",item.profile.server);assertEquals("7",item.withProfile(item.profile).liveGroupId);
+  }
+  @Test public void invalidCategoryIdentityCannotBeUsedForQualityMatching()throws Exception{
+    JSONObject json=new JSONObject().put("stream_id",1).put("name","ESPN 1080").put("category_id","../7");
+    Catalog.Item item=XtreamClient.parseItems("https://example.invalid","test","test","TV en vivo",new JSONArray().put(json),new HashMap<>()).get(0);assertEquals("",item.liveGroupId);
+  }
   @Test public void fullCatalogParsesEveryFolderAndTitleAfter150() throws Exception {
     JSONArray response=new JSONArray();Map<String,String> names=new HashMap<>();names.put("1","Estrenos");names.put("2","Clásicos");
     for(int i=1;i<=330;i++)response.put(new JSONObject().put("stream_id",i).put("name","Película "+i).put("category_id",i<=150?"1":"2").put("container_extension","mkv"));
