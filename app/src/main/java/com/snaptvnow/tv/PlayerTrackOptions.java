@@ -54,13 +54,18 @@ final class PlayerTrackOptions {
     for(Choice current:choices(player.getCurrentTracks(),type))
       if(current.supported && current.group.equals(choice.group) && current.index==choice.index) available=true;
     if(!available) return false;
-    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
-        .setTrackTypeDisabled(type,false).setOverrideForType(new TrackSelectionOverride(choice.group,choice.index)).build());
+    TrackSelectionParameters.Builder builder=player.getTrackSelectionParameters().buildUpon()
+        .setTrackTypeDisabled(type,false).setOverrideForType(new TrackSelectionOverride(choice.group,choice.index));
+    String language=PlayerTrackPreferences.language(choice.group.getFormat(choice.index).language);
+    String[] languages=language.equals("default")?new String[0]:new String[]{language};
+    if(type==C.TRACK_TYPE_AUDIO)builder.setPreferredAudioLanguages(languages);else if(type==C.TRACK_TYPE_TEXT)builder.setPreferredTextLanguages(languages);
+    player.setTrackSelectionParameters(builder.build());
     return true;
   }
   static void automatic(Player player,int type) {
-    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
-        .setTrackTypeDisabled(type,false).clearOverridesOfType(type).build());
+    TrackSelectionParameters.Builder builder=player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(type,false).clearOverridesOfType(type);
+    if(type==C.TRACK_TYPE_AUDIO)builder.setPreferredAudioLanguages(new String[0]);else if(type==C.TRACK_TYPE_TEXT)builder.setPreferredTextLanguages(new String[0]);
+    player.setTrackSelectionParameters(builder.build());
   }
   static void subtitlesOff(Player player) {
     player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()

@@ -87,6 +87,33 @@ public class PlayerTrackOptionsTest {
     TrackSelectionOverride selected=parameters.overrides.get(PlayerTrackOptions.choices(tracks,C.TRACK_TYPE_AUDIO).get(1).group);
     assertNotNull(selected);assertEquals(Integer.valueOf(0),selected.trackIndices.get(0));assertFalse(dialog.isShowing());
   }
+  @Test public void aChangedRemoteLanguageReplacesOnlyTheMatchingTrackType() throws Exception {
+    PlayerTrackOptions.Choice english=PlayerTrackOptions.choices(tracks,C.TRACK_TYPE_AUDIO).get(1),subtitle=PlayerTrackOptions.choices(tracks,C.TRACK_TYPE_TEXT).get(0);
+    PlayerTrackOptions.select(player,C.TRACK_TYPE_AUDIO,english);PlayerTrackOptions.select(player,C.TRACK_TYPE_TEXT,subtitle);
+    NativeProfileSync profile=new NativeProfileSync(activity,"changed-language-test",(op,body)->new org.json.JSONObject(),()->{});
+    try {
+      profile.merge(new org.json.JSONArray().put(new org.json.JSONObject().put("kind","preference").put("key","audio").put("value","es").put("updatedAt",System.currentTimeMillis())));
+      PlayerTrackPreferences.apply(player,profile);assertEquals("es",parameters.preferredAudioLanguages.get(0));assertFalse(parameters.overrides.containsKey(english.group));assertTrue(parameters.overrides.containsKey(subtitle.group));
+      verify(player,never()).seekTo(anyLong());verify(player,never()).prepare();
+    }finally{profile.stop();}
+  }
+  @Test public void profileRefreshKeepsTheExactSelectedTrackWhenLanguageIsUnchanged() throws Exception {
+    PlayerTrackOptions.Choice english=PlayerTrackOptions.choices(tracks,C.TRACK_TYPE_AUDIO).get(1);
+    PlayerTrackOptions.select(player,C.TRACK_TYPE_AUDIO,english);
+    NativeProfileSync profile=new NativeProfileSync(activity,"track-test",(op,body)->new org.json.JSONObject(),()->{});
+    try {
+      profile.merge(new org.json.JSONArray().put(new org.json.JSONObject().put("kind","preference").put("key","audio").put("value","en").put("updatedAt",System.currentTimeMillis())));
+      PlayerTrackPreferences.apply(player,profile);PlayerTrackPreferences.apply(player,profile);
+      assertTrue(parameters.overrides.containsKey(english.group));assertEquals("en",parameters.preferredAudioLanguages.get(0));
+      verify(player,never()).seekTo(anyLong());verify(player,never()).prepare();
+    }finally{profile.stop();}
+  }
+  @Test public void automaticSelectionRemovesThePreviousLanguageConstraint() {
+    PlayerTrackOptions.select(player,C.TRACK_TYPE_AUDIO,PlayerTrackOptions.choices(tracks,C.TRACK_TYPE_AUDIO).get(1));
+    PlayerTrackOptions.select(player,C.TRACK_TYPE_TEXT,PlayerTrackOptions.choices(tracks,C.TRACK_TYPE_TEXT).get(0));
+    PlayerTrackOptions.automatic(player,C.TRACK_TYPE_AUDIO);assertTrue(parameters.preferredAudioLanguages.isEmpty());assertEquals("es",parameters.preferredTextLanguages.get(0));
+    PlayerTrackOptions.automatic(player,C.TRACK_TYPE_TEXT);assertTrue(parameters.preferredTextLanguages.isEmpty());
+  }
   @Test public void missingSubtitleTracksShowsAnExplanationWithoutChangingPlayer() {
     tracks=Tracks.EMPTY;AlertDialog dialog=PlayerTrackOptions.show(activity,player,C.TRACK_TYPE_TEXT,()->{});
     android.widget.TextView message=dialog.findViewById(android.R.id.message);

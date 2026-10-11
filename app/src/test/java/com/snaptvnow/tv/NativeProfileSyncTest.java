@@ -53,7 +53,31 @@ public class NativeProfileSyncTest {
  }
  @Test public void metricsRetryTheSameIdentityAndAreNotPersisted()throws Exception{
   final int[] calls={0};final String[] id={null};NativeProfileSync sync=new NativeProfileSync(context,"alice",(op,body)->{if(op.equals("playback_metric")){calls[0]++;String next=body.getJSONObject("metric").getString("report_id");if(id[0]==null)id[0]=next;else assertEquals(id[0],next);if(calls[0]==1)throw new Exception("network_failed");return new JSONObject().put("ok",true).put("limited",calls[0]==2);}return new JSONObject().put("records",new JSONArray());},()->{});
-  sync.queueMetric(new JSONObject().put("report_id","synthetic-report"));try{sync.syncNow();fail();}catch(Exception expected){}sync.syncNow();sync.syncNow();sync.syncNow();assertEquals(3,calls[0]);assertFalse(context.getSharedPreferences("native_profile",0).getAll().toString().contains("synthetic-report"));sync.stop();
+  sync.queueMetric(new JSONObject().put("report_id","synthetic-report"));sync.syncNow();sync.syncNow();sync.syncNow();sync.syncNow();assertEquals(3,calls[0]);assertFalse(context.getSharedPreferences("native_profile",0).getAll().toString().contains("synthetic-report"));sync.stop();
+ }
+ @Test public void failedTelemetryDoesNotBlockFavoritesProgressOrLanguages()throws Exception{
+  final JSONArray[] posted={null};final int[] changes={0};NativeProfileSync sync=new NativeProfileSync(context,"alice",(op,body)->{
+   if(op.equals("playback_metric"))throw new Exception("network_failed");
+   if(op.equals("profile_get"))return new JSONObject().put("records",new JSONArray().put(new JSONObject().put("kind","preference").put("key","subtitle").put("value","off").put("updatedAt",now-1)));
+   posted[0]=body.getJSONArray("patches");return new JSONObject().put("records",posted[0]);
+  },()->changes[0]++);
+  try{
+   sync.queueMetric(new JSONObject().put("report_id","failed-telemetry"));sync.queue(favorite(now,false));
+   sync.queue(new JSONObject().put("kind","progress").put("key","movie:ccf:123").put("type","movie").put("server","ccf").put("id","123").put("time",91).put("duration",1000).put("updatedAt",now));
+   sync.queue(new JSONObject().put("kind","preference").put("key","audio").put("value","en").put("updatedAt",now));
+   sync.syncNow();assertNotNull(posted[0]);assertEquals(3,posted[0].length());assertEquals(1,changes[0]);assertEquals("en",sync.preference("audio"));assertEquals("off",sync.preference("subtitle"));
+  }finally{sync.stop();}
+ }
+ @Test public void aChangeDuringAnUploadIsSentWithoutWaitingForAnotherRefresh()throws Exception{
+  final NativeProfileSync[] sync={null};java.util.concurrent.CountDownLatch uploaded=new java.util.concurrent.CountDownLatch(1);java.util.List<JSONObject> sent=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+  sync[0]=new NativeProfileSync(context,"alice",(op,body)->{
+   if(op.equals("profile_get"))return new JSONObject().put("records",new JSONArray());
+   JSONObject patch=body.getJSONArray("patches").getJSONObject(0);sent.add(patch);
+   if(sent.size()==1){sync[0].queue(favorite(now+1,true));sync[0].refresh();}else uploaded.countDown();
+   return new JSONObject().put("records",new JSONArray().put(patch));
+  },()->{});
+  try{sync[0].queue(favorite(now,false));sync[0].refresh();assertTrue(uploaded.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(2,sent.size());assertFalse(sent.get(0).getBoolean("deleted"));assertTrue(sent.get(1).getBoolean("deleted"));}
+  finally{sync[0].stop();}
  }
  @Test public void historyIsSeparatedByServiceAndHttpsIsRequired()throws Exception{
   PlaybackHistory history=new PlaybackHistory(context);String a=AccountFavorites.scope("https://first.example","alice"),b=AccountFavorites.scope("https://second.example","alice");history.save(a,"movie123",90000,120000,true);assertEquals(0,history.position(b,"movie123"));assertEquals("https://api.snaptvnow.com",AppConfig.validate("https://api.snaptvnow.com/"));try{AppConfig.validate("http://provider.example");fail();}catch(Exception expected){}

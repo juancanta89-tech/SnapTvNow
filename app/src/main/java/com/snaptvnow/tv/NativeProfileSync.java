@@ -26,7 +26,7 @@ final class NativeProfileSync {
  private final ExecutorService executor=Executors.newSingleThreadExecutor();
  private final Map<String,JSONObject> records=new LinkedHashMap<>(),pending=new LinkedHashMap<>();
  private final List<JSONObject> metrics=new ArrayList<>(); // Bounded memory only; never stored with the profile.
- private boolean closed,scheduled;
+ private boolean closed,scheduled,refreshRequested;
  private long lastTime;
  NativeProfileSync(Context context,String account,Remote remote,Runnable changed){
   preferences=context.getApplicationContext().getSharedPreferences("native_profile",Context.MODE_PRIVATE);this.account=account;this.remote=remote;this.changed=changed;
@@ -77,11 +77,24 @@ final class NativeProfileSync {
  synchronized String preference(String key){JSONObject p=records.get("preference:"+key);return p!=null&&!p.optBoolean("deleted")?p.optString("value",null):null;}
  synchronized void queueMetric(JSONObject metric){if(closed)return;if(metrics.size()>=20)metrics.remove(0);metrics.add(metric);}
  void metric(JSONObject metric){queueMetric(metric);refresh();}
- void refresh(){synchronized(this){if(closed||scheduled)return;scheduled=true;}executor.execute(()->{try{syncNow();}catch(Exception ignored){/* Pending patches remain persisted for the next foreground/network retry. */}finally{synchronized(this){scheduled=false;}}});}
+ synchronized void refresh(){
+  if(closed)return;refreshRequested=true;if(scheduled)return;scheduled=true;
+  executor.execute(()->{
+   while(true){
+    synchronized(this){if(closed){scheduled=false;return;}refreshRequested=false;}
+    try{syncNow();}catch(Exception ignored){/* Keep pending patches for the next requested/foreground retry. */}
+    synchronized(this){if(closed||!refreshRequested){scheduled=false;return;}}
+   }
+  });
+ }
  void syncNow() throws Exception {
   final Remote connection;synchronized(this){if(closed||remote==null)return;connection=remote;}
   final JSONObject metric;synchronized(this){metric=metrics.isEmpty()?null:metrics.get(0);}
-  if(metric!=null){JSONObject result=connection.call("playback_metric",new JSONObject().put("metric",metric));synchronized(this){if(closed)return;if(!result.optBoolean("limited")&&!metrics.isEmpty()&&metrics.get(0)==metric)metrics.remove(0);}}
+  if(metric!=null){
+   try{JSONObject result=connection.call("playback_metric",new JSONObject().put("metric",metric));synchronized(this){if(closed)return;if(!result.optBoolean("limited")&&!metrics.isEmpty()&&metrics.get(0)==metric)metrics.remove(0);}}
+   catch(Exception ignored){/* Telemetry is optional: retry it later without blocking the customer's profile. */}
+  }
+  synchronized(this){if(closed)return;}
   JSONObject latest=connection.call("profile_get",new JSONObject());merge(latest.optJSONArray("records"));
   final List<JSONObject> batch;synchronized(this){if(closed)return;batch=new ArrayList<>(pending.values()).subList(0,Math.min(160,pending.size()));}
   if(!batch.isEmpty()){

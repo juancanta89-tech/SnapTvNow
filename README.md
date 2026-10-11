@@ -12,7 +12,7 @@ La entrega directa de una contraseña VPN compartida a un dispositivo autorizado
 
 La contraseña Surfshark y la clave de firma de producción no deben añadirse al repositorio ni a los artefactos de compilación.
 
-## Perfil web/app (1.0.11)
+## Perfil web/app (1.0.13)
 
 Las cuentas conectadas a `https://api.snaptvnow.com` sincronizan favoritos, progreso y preferencias de idioma mediante la API de perfil. Xtream conserva sus IDs globales de reproducción; `smn_profile` aporta la referencia original de servidor/título/episodio usada por la web. La app no envía credenciales de servidores ajenos a la API de SNAP y no guarda tokens en el almacenamiento del perfil. Las sesiones continúan cifradas con Android Keystore.
 
