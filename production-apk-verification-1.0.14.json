@@ -1,0 +1,21 @@
+{
+  "verifiedAt": "2026-10-11T19:54:51.707290+00:00",
+  "sourceCommit": "ccd2ef44d61cce7df395b93a0b8531dcb45e284a",
+  "runId": 38169640700,
+  "jobId": 114559357774,
+  "artifactId": 11714141331,
+  "archiveSha256": "26f43671aa763af69471461be1ff389728506cd5d85ca6b39760d408552c7c34",
+  "file": "SNAPTVNOW-1.0.14.apk",
+  "bytes": 44403568,
+  "sha256": "4122e1d90338d16fa687fe6f8707f74da0c568586ad1730384caf9c0579aa2ee",
+  "signerSha256": [
+    "069517313d68df21e9ba3110db2e498e9b42aeb8f3f4553d84953e946cd27165"
+  ],
+  "apkV2SignatureAndContentDigestVerified": true,
+  "productionCertificateMatchesVersion1_0_13": true,
+  "packageMatchesVersion1_0_13": true,
+  "versionName": "1.0.14",
+  "versionCode": 43,
+  "debuggable": false,
+  "physicalDeviceValidation": "pending; no Android or Fire TV hardware was controlled in this verification"
+}
