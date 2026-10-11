@@ -11,7 +11,7 @@ import androidx.media3.exoplayer.hls.HlsManifest;
 /** A channel-scoped watchdog. Never reuses a failed decoder or changes the channel. */
 final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
   static final class RetryState {
-    int failures;
+    int failures, recoveryRequests;
     long delay() { return Math.min(8_000L, 250L << Math.min(failures++, 5)); }
   }
   interface Listener { void reconnect(String reason); }
@@ -38,7 +38,7 @@ final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
       if(closed)return;
       pending=false;
       // Recheck a soft timeout: the download/decoder may have recovered during backoff.
-      if(wantsPlayback() && (terminalFailure || currentFailure(SystemClock.elapsedRealtime())!=null))listener.reconnect(reason);
+      if(wantsPlayback() && (terminalFailure || currentFailure(SystemClock.elapsedRealtime())!=null)){retries.recoveryRequests++;listener.reconnect(reason);}
     };
     resetProgress();player.addListener(this);handler.postDelayed(watchdog,1_000);
   }
@@ -103,7 +103,7 @@ final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
       if(videoExpected && now-lastFrame>=12_000)return "video_stalled";
       if(player.isPlaying()){
         if(healthySince==0)healthySince=now;
-        if(now-healthySince>=30_000)retries.failures=0;
+        if(now-healthySince>=30_000){retries.failures=0;retries.recoveryRequests=0;}
       }
     }
     return null;
