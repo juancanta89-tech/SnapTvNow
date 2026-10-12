@@ -23,7 +23,8 @@ import java.util.UUID;
 public class AppUpdateActivity extends Activity {
   static final String URL_EXTRA="update_url",CODE_EXTRA="update_code",NAME_EXTRA="update_name";
   private static final int INSTALL_REQUEST=201,PERMISSION_REQUEST=202;
-  private String link;
+  private String link,sha256="";
+  private long expectedSize;
   private int code,generation;
   private File apk;
   private TextView message;
@@ -34,12 +35,18 @@ public class AppUpdateActivity extends Activity {
   private long lastProgressTime;
 
   static void open(Activity activity,String url,int versionCode,String versionName){
+    open(activity,url,versionCode,versionName,"",0);
+  }
+  static void open(Activity activity,String url,int versionCode,String versionName,String sha256,long size){
     activity.startActivity(new Intent(activity,AppUpdateActivity.class)
-      .putExtra(URL_EXTRA,url).putExtra(CODE_EXTRA,versionCode).putExtra(NAME_EXTRA,versionName));
+      .putExtra(URL_EXTRA,url).putExtra(CODE_EXTRA,versionCode).putExtra(NAME_EXTRA,versionName)
+      .putExtra("update_sha256",sha256).putExtra("update_size",size));
   }
   @Override protected void onCreate(Bundle state){
     super.onCreate(state);
     link=getIntent().getStringExtra(URL_EXTRA);code=getIntent().getIntExtra(CODE_EXTRA,0);
+    String hash=getIntent().getStringExtra("update_sha256");sha256=hash==null?"":hash;
+    expectedSize=getIntent().getLongExtra("update_size",0);
     if(state!=null){autoInstall=state.getBoolean("auto_install",false);awaitingPermission=state.getBoolean("awaiting_permission",false);}
     buildScreen(getIntent().getStringExtra(NAME_EXTRA));
     try {
@@ -49,6 +56,7 @@ public class AppUpdateActivity extends Activity {
     SharedPreferences saved=preferences();
     String name=saved.getString("file","");
     boolean cached=saved.getInt("code",0)==code&&link.equals(saved.getString("url",""))
+      &&sha256.equals(saved.getString("sha256",""))&&expectedSize==saved.getLong("size",0)
       &&name.matches("update-[0-9]+-[a-f0-9-]+\\.apk");
     apk=new File(getFilesDir(),"updates/"+(cached?name:"update-"+code+"-"+UUID.randomUUID()+".apk"));
     beginDownload();
@@ -88,13 +96,14 @@ public class AppUpdateActivity extends Activity {
               &&(file.getName().endsWith(".apk")||file.getName().endsWith(".part")))file.delete();
         }
         boolean cached=apk.isFile()&&preferences().getInt("code",0)==code
-          &&link.equals(preferences().getString("url",""));
-        if(!cached)task.download(link,apk,(bytes,total)->postProgress(current,bytes,total));
+          &&link.equals(preferences().getString("url",""))&&sha256.equals(preferences().getString("sha256",""))&&expectedSize==preferences().getLong("size",0);
+        if(!cached)task.download(link,apk,(bytes,total)->postProgress(current,bytes,total),sha256,expectedSize);
         runOnUiThread(()->{if(valid(current))message.setText("Comprobando la actualización…");});
+        UpdateDownload.verifyIntegrity(apk,sha256,expectedSize);
         verifyArchive(apk,code);
         // A stopped/destroyed screen never opens an installer from the background.
         runOnUiThread(()->{if(valid(current)){
-          preferences().edit().putInt("code",code).putString("url",link).putString("file",apk.getName()).apply();
+          preferences().edit().putInt("code",code).putString("url",link).putString("file",apk.getName()).putString("sha256",sha256).putLong("size",expectedSize).apply();
           download=null;ready=true;progress.setVisibility(View.GONE);
           getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
           message.setText("Actualización descargada. Confirma la instalación para actualizar SNAPTVNOW.");

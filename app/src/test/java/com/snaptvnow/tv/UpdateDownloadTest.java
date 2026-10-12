@@ -77,4 +77,18 @@ public class UpdateDownloadTest {
       .download(APK,destination(),(bytes,total)->assertEquals(-1,total));
     assertEquals(3,destination().length());
   }
+  @Test public void publishedDigestAndSizeMustMatchTheDownloadedBytes() throws Exception {
+    byte[] bytes={1,2,3};String hash="039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
+    new UpdateDownload(url->new Response(url,200,null,bytes,"3")).download(APK,destination(),(n,total)->{},hash,3);
+    assertEquals(3,destination().length());UpdateDownload.verifyIntegrity(destination(),hash,3);destination().delete();
+    try{new UpdateDownload(url->new Response(url,200,null,bytes,"3")).download(APK,destination(),(n,total)->{},"a".repeat(64),3);fail();}catch(IOException correct){}
+    assertFalse(destination().exists());assertEquals(0,temp.getRoot().list().length);
+  }
+  @Test public void cachedApkAndWrongAdvertisedSizeAreRejected() throws Exception {
+    Files.write(destination().toPath(),new byte[]{1,2,3});
+    try{UpdateDownload.verifyIntegrity(destination(),"a".repeat(64),3);fail();}catch(IOException correct){}
+    destination().delete();
+    try{new UpdateDownload(url->new Response(url,200,null,new byte[]{1,2,3},"3")).download(APK,destination(),(n,total)->{},"",4);fail();}catch(IOException correct){}
+    assertFalse(destination().exists());
+  }
 }
