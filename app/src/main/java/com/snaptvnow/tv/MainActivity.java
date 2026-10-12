@@ -715,7 +715,26 @@ public class MainActivity extends Activity {
     results.addView(grid,new LinearLayout.LayoutParams(-1,-2));
   }
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
-  private void account(){title("Cuenta y configuración");body.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(body,10);body.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(body,20);if(client!=null){body.addView(text(ProfileReference.managed(client.server())?"Conexión HTTPS y sincronización con la web activas.":client.server()!=null&&client.server().startsWith("https://")?"Conexión HTTPS activa.":"El servidor utiliza HTTP sin cifrado.",13,MUTED,false));gap(body,20);body.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);body.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(body,10);body.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(body,14);}body.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));}
+  private void account(){
+    title("Cuenta y configuración");
+    boolean columns=catalogWindowWidth()>=640;
+    LinearLayout content=new LinearLayout(this);content.setOrientation(columns?LinearLayout.HORIZONTAL:LinearLayout.VERTICAL);
+    body.addView(content,new LinearLayout.LayoutParams(-1,-2));
+    LinearLayout account=col();
+    content.addView(account,columns?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2));
+    account.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(account,10);
+    account.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(account,20);
+    if(client!=null){
+      account.addView(text(ProfileReference.managed(client.server())?"Conexión HTTPS y sincronización con la web activas.":client.server()!=null&&client.server().startsWith("https://")?"Conexión HTTPS activa.":"El servidor utiliza HTTP sin cifrado.",13,MUTED,false));gap(account,20);
+      account.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);
+      account.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(account,10);
+      account.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);
+    }
+    account.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));
+    LinearLayout.LayoutParams updateParams=columns?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2);
+    if(columns)updateParams.leftMargin=d(24);else updateParams.topMargin=d(28);
+    content.addView(new AccountUpdatesView(this),updateParams);
+  }
   private void devices(){title("Dispositivos compatibles");body.addView(text("Amazon Fire TV · Firestick · Android TV · TV Box · Celular Android",18,WHITE,false));gap(body,12);body.addView(text("Usa el control remoto en TV o toca las tarjetas en tu celular.",15,MUTED,false));}
   private Catalog.Item nextChannel(Catalog.Item current){
     int start=-1;for(int i=0;i<items.size();i++)if(items.get(i).id.equals(current.id)){start=i;break;}

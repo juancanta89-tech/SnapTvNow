@@ -2,6 +2,7 @@ package com.snaptvnow.tv;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
@@ -9,6 +10,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
 import java.util.UUID;
+import java.security.MessageDigest;
 
 /** A bounded HTTPS download. Redirects never inherit app/subscriber credentials. */
 final class UpdateDownload {
@@ -41,6 +43,9 @@ final class UpdateDownload {
   }
 
   File download(String link,File destination,Progress progress) throws IOException {
+    return download(link,destination,progress,"",0);
+  }
+  File download(String link,File destination,Progress progress,String sha256,long expectedSize) throws IOException {
     URL url=apkUrl(link);
     File directory=destination.getParentFile();
     if(directory==null||(!directory.isDirectory()&&!directory.mkdirs()))
@@ -64,6 +69,8 @@ final class UpdateDownload {
           }
           if(status!=200)throw new IOException("El servidor no pudo descargar la actualización. Reintenta.");
           long total=contentLength(connection.getHeaderField("Content-Length"));
+          if(expectedSize>0&&total>=0&&total!=expectedSize)throw new IOException("El tamaño de la descarga no coincide con la APK publicada.");
+          if(total<0&&expectedSize>0)total=expectedSize;
           if(total>MAX_BYTES)throw new IOException("La actualización supera el tamaño permitido.");
           if(total>0&&directory.getUsableSpace()<total+5L*1024*1024)
             throw new IOException("No hay espacio suficiente para descargar la actualización.");
@@ -81,6 +88,8 @@ final class UpdateDownload {
             output.getFD().sync();
           }
           checkCancelled();
+          verifyIntegrity(partial,sha256,expectedSize);
+          checkCancelled();
           if(!partial.renameTo(destination))throw new IOException("No se pudo guardar la actualización.");
           return destination;
         }finally{active=null;connection.disconnect();}
@@ -90,5 +99,16 @@ final class UpdateDownload {
   }
   private static long contentLength(String header){
     try{return header==null?-1:Long.parseLong(header);}catch(NumberFormatException ignored){return -1;}
+  }
+  static void verifyIntegrity(File file,String sha256,long size) throws IOException {
+    if(size>0&&file.length()!=size)throw new IOException("La descarga quedó incompleta. Reintenta.");
+    if(sha256==null||sha256.isEmpty())return;
+    if(!sha256.matches("[a-fA-F0-9]{64}"))throw new IOException("La comprobación de la APK publicada no es válida.");
+    try {
+      MessageDigest digest=MessageDigest.getInstance("SHA-256");
+      try(InputStream input=new FileInputStream(file)){byte[] bytes=new byte[64*1024];int count;while((count=input.read(bytes))!=-1)digest.update(bytes,0,count);}
+      StringBuilder hex=new StringBuilder();for(byte value:digest.digest())hex.append(String.format(Locale.ROOT,"%02x",value&255));
+      if(!hex.toString().equalsIgnoreCase(sha256))throw new IOException("La APK descargada no coincide con la publicada. Reintenta.");
+    }catch(java.security.NoSuchAlgorithmException failure){throw new IOException("No se pudo comprobar la descarga.",failure);}
   }
 }
