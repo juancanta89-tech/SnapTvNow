@@ -22,6 +22,14 @@ Los favoritos y el progreso locales se separan por usuario y servidor. El histor
 
 Validación requerida antes de distribuir: ejecutar las pruebas Robolectric de sincronización, aislamiento y reproductor, compilar la variante debug, y probar en teléfono/TV con dos cuentas ficticias y la web. La distribución release conserva el applicationId y requiere la clave de firma de producción existente. No generar una clave alternativa para actualizar una APK instalada.
 
-El panel distingue métricas web/Android: primer cuadro, tiempo reproduciendo/cargando, cortes y errores. Android no mide bytes ni cuadros decodificados en estos informes. Los informes agregados se reintentan con el mismo identificador, con hasta veinte en memoria; no se guardan con el perfil y se descartan al cerrar la cuenta. No incluyen usuario, dispositivo, título ni URL. No son una medición de facturación.
+El panel distingue métricas web/Android: primer cuadro, tiempo reproduciendo/cargando, cortes y errores. Android mide bytes de red y cuadros renderizados/descartados cuando Media3 los proporciona. Los informes agregados se reintentan con el mismo identificador, con hasta veinte en memoria; no se guardan con el perfil y se descartan al cerrar la cuenta. No incluyen usuario, dispositivo, título ni URL. No son una medición de facturación.
 
 La guía muestra hasta 24 programas cuando el proveedor los ofrece, decodifica títulos UTF-8/base64, omite programas terminados y marca el actual. Sus errores no interrumpen la reproducción ni se aplican después de cambiar de cuenta.
+
+## Calidad por reproducción (1.0.17)
+
+La app pide un recibo cifrado de monitorización al abrir contenido mediante su API HTTPS. Cada reproductor utiliza un identificador aleatorio temporal para separar reproducciones simultáneas detrás del mismo router. Los informes incluyen el recibo, las dimensiones observadas y su antigüedad; no se persisten recibos ni métricas. El servicio valida usuario, versión de acceso, reserva y reproducción antes de actualizar las barras del panel. Una reconexión descarta el intervalo de transición para la calidad individual; los informes de una conexión anterior no modifican la nueva.
+
+La primera medición se envía aproximadamente a los diez segundos y después cada veinte; el panel refresca cada treinta segundos. La ausencia de datos recientes se muestra como «Sin medición». Un error de monitorización no detiene la reproducción. Los reproductores externos requieren una integración propia para reportar esta información.
+
+La versión 1.0.17 usa código 46, conserva `com.snaptvnow.tv` y debe firmarse con el certificado de producción existente de 1.0.16. La instalación encima de 1.0.16 requiere una prueba física; no desinstalar la versión anterior para esa prueba.

@@ -25,7 +25,11 @@ final class NativeProfileSync {
  private final Runnable changed;
  private final ExecutorService executor=Executors.newSingleThreadExecutor();
  private final Map<String,JSONObject> records=new LinkedHashMap<>(),pending=new LinkedHashMap<>();
- private final List<JSONObject> metrics=new ArrayList<>(); // Bounded memory only; never stored with the profile.
+ private static final class Metric {
+  final JSONObject payload;final long measuredAt=android.os.SystemClock.elapsedRealtime();
+  Metric(JSONObject payload){this.payload=payload;}
+ }
+ private final List<Metric> metrics=new ArrayList<>(); // Bounded memory only; never stored with the profile.
  private boolean closed,scheduled,refreshRequested;
  private long lastTime;
  NativeProfileSync(Context context,String account,Remote remote,Runnable changed){
@@ -75,8 +79,17 @@ final class NativeProfileSync {
  }
  void preference(String key,String value){try{queue(new JSONObject().put("kind","preference").put("key",key).put("value",value).put("updatedAt",time()));refresh();}catch(Exception ignored){}}
  synchronized String preference(String key){JSONObject p=records.get("preference:"+key);return p!=null&&!p.optBoolean("deleted")?p.optString("value",null):null;}
- synchronized void queueMetric(JSONObject metric){if(closed)return;if(metrics.size()>=20)metrics.remove(0);metrics.add(metric);}
+ synchronized void queueMetric(JSONObject metric){queueMetric(metric,null,0,0);}
+ synchronized void queueMetric(JSONObject metric,String ticket,int width,int height){
+  if(closed)return;
+  try{
+   JSONObject payload=new JSONObject().put("metric",new JSONObject(metric.toString()));
+   if(ticket!=null&&ticket.matches("[A-Za-z0-9_-]{40,4096}"))payload.put("quality_ticket",ticket).put("observation",new JSONObject().put("width",width).put("height",height));
+   if(metrics.size()>=20)metrics.remove(0);metrics.add(new Metric(payload));
+  }catch(Exception ignored){}
+ }
  void metric(JSONObject metric){queueMetric(metric);refresh();}
+ void metric(JSONObject metric,String ticket,int width,int height){queueMetric(metric,ticket,width,height);refresh();}
  synchronized void refresh(){
   if(closed)return;refreshRequested=true;if(scheduled)return;scheduled=true;
   executor.execute(()->{
@@ -89,9 +102,10 @@ final class NativeProfileSync {
  }
  void syncNow() throws Exception {
   final Remote connection;synchronized(this){if(closed||remote==null)return;connection=remote;}
-  final JSONObject metric;synchronized(this){metric=metrics.isEmpty()?null:metrics.get(0);}
+  final Metric metric;synchronized(this){metric=metrics.isEmpty()?null:metrics.get(0);}
   if(metric!=null){
-   try{JSONObject result=connection.call("playback_metric",new JSONObject().put("metric",metric));synchronized(this){if(closed)return;if(!result.optBoolean("limited")&&!metrics.isEmpty()&&metrics.get(0)==metric)metrics.remove(0);}}
+   try{JSONObject payload=new JSONObject(metric.payload.toString());if(payload.has("quality_ticket"))payload.getJSONObject("observation").put("ageMs",Math.max(0,android.os.SystemClock.elapsedRealtime()-metric.measuredAt));
+    JSONObject result=connection.call("playback_metric",payload);synchronized(this){if(closed)return;if((!result.optBoolean("limited")||result.optBoolean("qualityHandled"))&&!metrics.isEmpty()&&metrics.get(0)==metric)metrics.remove(0);}}
    catch(Exception ignored){/* Telemetry is optional: retry it later without blocking the customer's profile. */}
   }
   synchronized(this){if(closed)return;}

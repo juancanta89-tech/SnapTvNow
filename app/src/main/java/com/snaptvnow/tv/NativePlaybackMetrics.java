@@ -39,10 +39,19 @@ final class NativePlaybackMetrics implements Player.Listener, AnalyticsListener 
   }
  }
  private final ExoPlayer player;private final NativeProfileSync sync;private final Handler handler;private final Counters counters;private boolean closed;private int ticks;
- private final PlaybackTransfer transfer;private DecoderCounters decoder;private int renderedSnapshot,droppedSnapshot;
- private final Runnable tick=new Runnable(){public void run(){if(closed)return;sample();if(++ticks%30==0)flush(false);handler.postDelayed(this,1000);}};
+ private final PlaybackTransfer transfer;private DecoderCounters decoder;private int renderedSnapshot,droppedSnapshot;private String qualityTicket;
+ private final Runnable tick=new Runnable(){public void run(){if(closed)return;sample();if(++ticks==10||ticks>10&&(ticks-10)%20==0)flush(false);handler.postDelayed(this,1000);}};
  NativePlaybackMetrics(ExoPlayer player,NativeProfileSync sync,ProfileReference ref,PlaybackTransfer transfer){this.player=player;this.sync=sync;this.transfer=transfer;handler=new Handler(player.getApplicationLooper());counters=new Counters(ref,SystemClock.elapsedRealtime());player.addListener(this);player.addAnalyticsListener(this);handler.postDelayed(tick,1000);}
- private void sample(){captureFrames();if(transfer!=null)counters.transfer(transfer.bytes());counters.state(SystemClock.elapsedRealtime(),player.isPlaying(),player.getPlaybackState()==Player.STATE_BUFFERING,player.getPlayWhenReady()&&player.getPlaybackSuppressionReason()==Player.PLAYBACK_SUPPRESSION_REASON_NONE);}
+ private void sample(){
+  captureFrames();if(transfer!=null)counters.transfer(transfer.bytes());long now=SystemClock.elapsedRealtime();
+  counters.state(now,player.isPlaying(),player.getPlaybackState()==Player.STATE_BUFFERING,player.getPlayWhenReady()&&player.getPlaybackSuppressionReason()==Player.PLAYBACK_SUPPRESSION_REASON_NONE);
+  String next=transfer==null?null:transfer.qualityTicket();
+  if(next!=null&&!next.equals(qualityTicket)){
+   // A seek/reconnect may allocate a replacement connection. The transition
+   // interval is aggregate-only; never attribute its mixed frames to either row.
+   report(now,false,null);qualityTicket=next;ticks=0;
+  }
+ }
  private void captureFrames(){
   if(decoder==null)return;decoder.ensureUpdated();
   int rendered=decoder.renderedOutputBufferCount,lost=decoder.droppedBufferCount;
@@ -55,6 +64,7 @@ final class NativePlaybackMetrics implements Player.Listener, AnalyticsListener 
  @Override public void onPlaybackStateChanged(int state){sample();}
  @Override public void onPlayerError(PlaybackException error){sample();counters.error();android.util.Log.w("PlaybackMetrics","player_error_"+error.errorCode);flush(false);}
  @Override public void onVideoSizeChanged(VideoSize size){counters.height(size.height);}
- private void flush(boolean last){try{JSONObject row=counters.report(SystemClock.elapsedRealtime(),last);if(row!=null)sync.metric(row);}catch(Exception ignored){}}
+ private void report(long now,boolean last,String ticket){try{JSONObject row=counters.report(now,last);if(row!=null){VideoSize size=player.getVideoSize();sync.metric(row,ticket,size.width,size.height);}}catch(Exception ignored){}}
+ private void flush(boolean last){report(SystemClock.elapsedRealtime(),last,qualityTicket);}
  void close(){if(closed)return;sample();flush(true);closed=true;handler.removeCallbacks(tick);player.removeListener(this);player.removeAnalyticsListener(this);decoder=null;}
 }

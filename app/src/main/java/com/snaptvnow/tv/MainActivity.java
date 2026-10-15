@@ -893,6 +893,7 @@ public class MainActivity extends Activity {
     playbackTransfer=new PlaybackTransfer();
     androidx.media3.datasource.DefaultHttpDataSource.Factory http=new androidx.media3.datasource.DefaultHttpDataSource.Factory()
         .setConnectTimeoutMs(10_000).setReadTimeoutMs(20_000);
+    if(nativeProfile!=null&&client!=null&&ProfileReference.managed(client.server()))http.setUserAgent("SNAPTVNOW/"+UpdateChecker.installedName(this)+" (Android)").setDefaultRequestProperties(java.util.Collections.singletonMap(PlaybackTransfer.MONITOR_REQUEST_HEADER,java.util.UUID.randomUUID().toString()));
     androidx.media3.datasource.DefaultDataSource.Factory data=new androidx.media3.datasource.DefaultDataSource.Factory(this,http).setTransferListener(playbackTransfer);
     return new ExoPlayer.Builder(this,new androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
         .setLoadControl(PlaybackBufferPolicy.create(currentItem!=null&&currentItem.id.startsWith("live")))
