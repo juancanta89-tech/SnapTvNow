@@ -39,12 +39,18 @@ final class AudioRenderersFactory extends DefaultRenderersFactory {
  }
  static ChannelMixingMatrix stereoMatrix(int channels){
   if(channels<=2)return ChannelMixingMatrix.createForConstantGain(channels,2);
-  if(channels<=6)return ChannelMixingMatrix.createForConstantPower(channels,2).scaleBy(.5f);
-  // Matrix rows are output channels: all left coefficients, then all right coefficients.
-  // 6.1 uses FL FR FC LFE BC SL SR; 7.1 uses FL FR FC LFE BL BR SL SR.
-  float[] left=channels==7?new float[]{1,0,.7071f,.5f,.5f,.7071f,0}:new float[]{1,0,.7071f,.5f,.7071f,0,.7071f,0};
-  float[] right=channels==7?new float[]{0,1,.7071f,.5f,.5f,0,.7071f}:new float[]{0,1,.7071f,.5f,0,.7071f,0,.7071f};
-  float[] weights=new float[channels*2];System.arraycopy(left,0,weights,0,channels);System.arraycopy(right,0,weights,channels,channels);
-  return new ChannelMixingMatrix(channels,2,weights).scaleBy(.5f);
+  // getMixingCoefficient(input, output) indexes input * outputCount + output.
+  float[] weights=new float[channels*2];weights[0]=.5f;weights[3]=.5f;
+  if(channels==4){weights[4]=weights[7]=.3535534f;}
+  else{
+   weights[4]=weights[5]=.3535534f; // front-center dialogue to both speakers
+   if(channels==5){weights[6]=weights[9]=.3535534f;}
+   else if(channels>=6){
+    weights[6]=weights[7]=.25f; // low-frequency channel
+    if(channels==7){weights[8]=weights[9]=.25f;weights[10]=weights[13]=.3535534f;}
+    else{weights[8]=weights[11]=.3535534f;if(channels==8)weights[12]=weights[15]=.3535534f;}
+   }
+  }
+  return new ChannelMixingMatrix(channels,2,weights);
  }
 }
