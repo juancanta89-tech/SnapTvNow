@@ -47,6 +47,7 @@ jobs:
       - name: Install Android platform
         run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
       - name: Restore verified native audio build
+        id: native_audio
         uses: actions/cache@v4
         with:
           path: |
@@ -56,6 +57,15 @@ jobs:
           key: snaptv-audio-1.11.1-6.1.4-ndk26b-v1-${{ runner.os }}
       - name: Build pinned MP2, AAC and Dolby audio decoders
         run: bash scripts/build-native-audio.sh
+      - name: Cache the successfully built native audio libraries
+        if: steps.native_audio.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/android-libs
+            vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/libavutil/avconfig.h
+            vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/libavutil/ffversion.h
+          key: snaptv-audio-1.11.1-6.1.4-ndk26b-v1-${{ runner.os }}
       - name: Decode private signing key
         env:
           SIGNING_KEY_B64: ${{ secrets.SNAPTVNOW_KEYSTORE_BASE64 }}
