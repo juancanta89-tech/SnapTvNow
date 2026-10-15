@@ -81,6 +81,7 @@ public class MainActivity extends Activity {
   private LinearLayout root, body;
   private ExoPlayer video;
   private NativePlaybackMetrics playbackMetrics;
+  private LiveAudioDiagnostics audioDiagnostics;
   private PlaybackTransfer playbackTransfer;
   private PlayerView playerView;
   private FrameLayout playerControls;
@@ -250,7 +251,7 @@ public class MainActivity extends Activity {
       LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(d(2),0,d(2),0);bar.addView(button,lp);
     }
   }
-  private void releaseVideo(){if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
+  private void releaseVideo(){if(audioDiagnostics!=null){audioDiagnostics.close();audioDiagnostics=null;}if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
   private void brand(LinearLayout holder,int size){TextView t=text("SNAPTVNOW",size,CYAN,true);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t);}
   private void navigation(LinearLayout holder,boolean horizontal){for(int i=0;i<SECTIONS.length;i++){String s=SECTIONS[i],label=ICONS[i]+"  "+s;TextView t=action(label,()->{section=s;render();});t.setTextSize(horizontal?13:14);t.setGravity(horizontal?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(s.equals(section)){t.setBackground(gradient(0xff106580,0xff0b354e,12));t.setTextColor(CYAN);}LinearLayout.LayoutParams lp=horizontal?new LinearLayout.LayoutParams(d(105),d(46)):new LinearLayout.LayoutParams(-1,d(49));lp.setMargins(0,0,horizontal?d(5):0,horizontal?0:d(4));holder.addView(t,lp);if(s.equals(section))initialFocus=t;}}
   private void content(LinearLayout holder){
@@ -902,6 +903,7 @@ public class MainActivity extends Activity {
     TextView pause=action("❚❚",()->{});pause.setOnClickListener(v->{if(video==null)return;if(video.getPlayWhenReady()){video.pause();pauseLabel(pause,false);}else{video.play();pauseLabel(pause,true);}showPlayerControls();});bottom.addView(pause,new LinearLayout.LayoutParams(d(54),d(48)));
     TextView guideButton=action("Guía",()->{if(client!=null&&item.id.startsWith("live"))loadEpg(item);else Toast.makeText(this,"Guía no disponible para este título",Toast.LENGTH_SHORT).show();showPlayerControls();});bottom.addView(guideButton,new LinearLayout.LayoutParams(0,d(48),1));
     TextView channelList=action("Canales",()->{render();});bottom.addView(channelList,new LinearLayout.LayoutParams(0,d(48),1));
+    TextView liveAudio=action("Audio",()->{if(video!=null)openLiveAudioOptions(video);});liveAudio.setTag("live_audio");bottom.addView(liveAudio,new LinearLayout.LayoutParams(0,d(48),1));
     TextView aspect=action("⛶",()->{if(playerView==null)return;int mode=playerView.getResizeMode();playerView.setResizeMode(mode==AspectRatioFrameLayout.RESIZE_MODE_FIT?AspectRatioFrameLayout.RESIZE_MODE_ZOOM:AspectRatioFrameLayout.RESIZE_MODE_FIT);showPlayerControls();});bottom.addView(aspect,new LinearLayout.LayoutParams(d(51),d(48)));
     }
     if(findingOnline){
@@ -921,13 +923,15 @@ public class MainActivity extends Activity {
         .setConnectTimeoutMs(10_000).setReadTimeoutMs(currentItem!=null&&ExclusiveCatalog.item(currentItem.id)?45_000:20_000);
     if(nativeProfile!=null&&client!=null&&ProfileReference.managed(client.server()))http.setUserAgent("SNAPTVNOW/"+UpdateChecker.installedName(this)+" (Android)").setDefaultRequestProperties(java.util.Collections.singletonMap(PlaybackTransfer.MONITOR_REQUEST_HEADER,java.util.UUID.randomUUID().toString()));
     androidx.media3.datasource.DefaultDataSource.Factory data=new androidx.media3.datasource.DefaultDataSource.Factory(this,http).setTransferListener(playbackTransfer);
-    return new ExoPlayer.Builder(this,new androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
+    boolean compatible=currentItem!=null&&currentItem.id.startsWith("live")&&(prefs==null||prefs.getBoolean(AudioRenderersFactory.COMPATIBLE_KEY,true));
+    return new ExoPlayer.Builder(this,new AudioRenderersFactory(this,compatible))
         .setLoadControl(PlaybackBufferPolicy.create(currentItem!=null&&currentItem.id.startsWith("live")))
         .setMediaSourceFactory(new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(data))
         .setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),true)
         .setHandleAudioBecomingNoisy(true).setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000).build();
   }
   private void attachLiveRecovery(Catalog.Item item,ExoPlayer activePlayer){
+    if(audioDiagnostics!=null)audioDiagnostics.close();audioDiagnostics=new LiveAudioDiagnostics(activePlayer);
     liveRecovery=new LivePlaybackRecovery(activePlayer,liveRetries,playbackTransfer,reason->{
       if(!playing||currentItem!=item||video!=activePlayer)return;
       if(findingOnline){tryNextOnline(item);return;}
@@ -942,14 +946,21 @@ public class MainActivity extends Activity {
     }});
   }
   private void rebuildLivePlayer(Catalog.Item item,ExoPlayer expected){
-    if(!playing||awaitingLiveRecoveryChoice||currentItem!=item||video!=expected||playerView==null||!expected.getPlayWhenReady())return;
+    rebuildLivePlayer(item,expected,false);
+  }
+  private void rebuildLivePlayer(Catalog.Item item,ExoPlayer expected,boolean userAudioChange){
+    if(!playing||awaitingLiveRecoveryChoice||currentItem!=item||video!=expected||playerView==null||!expected.getPlayWhenReady()&&!userAudioChange)return;
+    boolean resume=expected.getPlayWhenReady();
+    TrackSelectionParameters tracks=expected.getTrackSelectionParameters();
     // Keep the existing surface, aspect ratio, controls and TV focus during recovery.
     playerView.setKeepContentOnPlayerReset(true);
     if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
     if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}
+    if(audioDiagnostics!=null){audioDiagnostics.close();audioDiagnostics=null;}
     video=null;playerView.setPlayer(null);expected.release();
     video=createPlayer();if(nativeProfile!=null)PlayerTrackPreferences.apply(video,nativeProfile);playerView.setPlayer(video);attachLiveRecovery(item,video);if(nativeProfile!=null&&item.profile!=null)playbackMetrics=new NativePlaybackMetrics(video,nativeProfile,item.profile,playbackTransfer);
-    video.setMediaItem(MediaItem.fromUri(item.url));video.prepare();video.play();
+    if(tracks!=null)video.setTrackSelectionParameters(tracks);
+    video.setMediaItem(MediaItem.fromUri(item.url));video.setPlayWhenReady(resume);video.prepare();if(resume)video.play();
   }
   private boolean showLiveRecoveryOptions(Catalog.Item item,ExoPlayer expected){
     if(!playing||currentItem!=item||video!=expected||isFinishing()||isDestroyed())return false;
@@ -1038,6 +1049,33 @@ public class MainActivity extends Activity {
     if(video!=player)return;
     if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();}
     trackDialog=PlayerTrackOptions.show(this,player,type,()->{trackDialog=null;if(video==player)showPlayerControls();},value->{if(nativeProfile!=null)nativeProfile.preference(type==C.TRACK_TYPE_AUDIO?"audio":"subtitle",value);});
+  }
+  private void openLiveAudioOptions(ExoPlayer expected){
+    if(video!=expected||currentItem==null||!currentItem.id.startsWith("live"))return;
+    if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}
+    boolean compatible=prefs.getBoolean(AudioRenderersFactory.COMPATIBLE_KEY,true);
+    String[] options={"Elegir pista de audio",compatible?"Usar audio automático":"Activar audio compatible","Información de audio"};
+    AlertDialog menu=new AlertDialog.Builder(this).setTitle("Audio · "+(compatible?"Compatible":"Automático"))
+      .setItems(options,(dialog,index)->{
+        dialog.dismiss();
+        if(video!=expected||currentItem==null||!currentItem.id.startsWith("live"))return;
+        if(index==0)openTrackOptions(expected,C.TRACK_TYPE_AUDIO);
+        else if(index==1){prefs.edit().putBoolean(AudioRenderersFactory.COMPATIBLE_KEY,!compatible).apply();rebuildLivePlayer(currentItem,expected,true);showPlayerControls();}
+        else showLiveAudioInformation(expected);
+      }).setNegativeButton("Cerrar",null).create();
+    menu.setOnDismissListener(dialog->{if(trackDialog==menu)trackDialog=null;if(video==expected)showPlayerControls();});
+    trackDialog=menu;menu.show();
+  }
+  private void showLiveAudioInformation(ExoPlayer expected){
+    if(video!=expected||audioDiagnostics==null)return;
+    String report=audioDiagnostics.report(UpdateChecker.installedName(this),prefs.getBoolean(AudioRenderersFactory.COMPATIBLE_KEY,true));
+    AlertDialog info=new AlertDialog.Builder(this).setTitle("Información de audio").setMessage(report)
+      .setPositiveButton("Copiar",(dialog,which)->{
+        ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+        if(clipboard!=null){clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico de audio SNAPTVNOW",report));Toast.makeText(this,"Diagnóstico copiado",Toast.LENGTH_SHORT).show();}
+      }).setNegativeButton("Cerrar",null).create();
+    info.setOnDismissListener(dialog->{if(trackDialog==info)trackDialog=null;if(video==expected)showPlayerControls();});
+    trackDialog=info;info.show();
   }
   @Override protected void onDestroy(){searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
   private String playbackAccount(){return client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";}

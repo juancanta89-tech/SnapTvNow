@@ -7,7 +7,7 @@ def productionSigning = [
   keyPassword: System.getenv('SNAPTVNOW_KEY_PASSWORD')
 ]
 android { namespace 'com.snaptvnow.tv'; compileSdk 36
- defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 48; versionName '1.0.19'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
+ defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 49; versionName '1.0.20'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
  signingConfigs {
   production {
    storeFile file(productionSigning.file ?: 'production-key-not-configured.jks')
@@ -22,6 +22,7 @@ android { namespace 'com.snaptvnow.tv'; compileSdk 36
  testOptions { unitTests.includeAndroidResources = true }
 }
 dependencies {
+ implementation project(':audio-decoder')
  implementation 'androidx.core:core:1.15.0'
  implementation 'network.mysterium.openvpn:icsopenvpn:0.7.55-myst'
  implementation 'androidx.media3:media3-exoplayer:1.11.1'
@@ -30,6 +31,8 @@ dependencies {
  testImplementation 'junit:junit:4.13.2'
  testImplementation 'org.robolectric:robolectric:4.14.1'
  testImplementation 'org.mockito:mockito-core:4.11.0'
+ androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+ androidTestImplementation 'androidx.test:runner:1.6.2'
 }
 
 gradle.taskGraph.whenReady { graph ->

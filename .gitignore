@@ -11,4 +11,5 @@ local.properties
 *.properties.local
 .idea/
 vendor/openvpn-engine/
+vendor/media/
 *.iml

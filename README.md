@@ -2,6 +2,14 @@
 
 Proyecto Android de SNAPTVNOW. La verificación automática compila el código fuente y genera una APK de prueba separada; la distribución de producción exige la firma existente.
 
+## Audio en vivo (1.0.20)
+
+La app incorpora el módulo FFmpeg oficial de Media3, compilado desde revisiones fijas con decodificadores de audio. Cubre MPEG Layer II (MP2) sin depender de que Fire TV publique un MediaCodec para ese formato. En TV en vivo, «Audio compatible» está activado inicialmente: prioriza la decodificación por software y entrega PCM estéreo, mezclando el canal central de sonido envolvente hacia ambos altavoces. El video sigue usando su renderer del dispositivo y no se cambia de canal ni de resolución. Películas y series conservan la elección del decodificador del dispositivo con FFmpeg como alternativa para formatos no admitidos.
+
+El botón Audio de TV en vivo permite elegir la pista real, cambiar entre salida compatible/automática y copiar un diagnóstico local sin cuentas, enlaces ni tokens. La preferencia de salida pertenece al dispositivo y no se sincroniza hacia otros TVs. El cambio conserva el canal y la pausa; libera el reproductor anterior antes de abrir el reemplazo.
+
+La procedencia, licencias y reproducción de la compilación se documentan en [audio-decoder/PROVENANCE.md](audio-decoder/PROVENANCE.md). CI debe superar las pruebas Android de MP2/AAC/AC3/EAC3 con PCM no silencioso, además de las regresiones existentes. La audibilidad real en el Fire TV y en el canal reportado requiere comprobación física; las pruebas de muestras generadas no certifican las señales del proveedor.
+
 ## Estado VPN
 
 La app carga las ubicaciones VPN habilitadas. Al elegir una, solicita el perfil al panel con las credenciales de la línea, pide el permiso VPN de Android y arranca el motor OpenVPN. El permiso del sistema no se puede omitir. Esta rama todavía requiere probar conexión, tráfico, reconexión y desconexión en un dispositivo Android antes de distribuir una APK.

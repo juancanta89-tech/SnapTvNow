@@ -40,6 +40,7 @@ public class LivePlayerReplacementTest {
   }
   @After public void tearDown()throws Exception {
     LivePlaybackRecovery recovery=(LivePlaybackRecovery)field("liveRecovery");if(recovery!=null)recovery.close();
+    LiveAudioDiagnostics audio=(LiveAudioDiagnostics)field("audioDiagnostics");if(audio!=null)audio.close();
     ((ExecutorService)field("searchExecutor")).shutdownNow();
   }
   @Test public void releasesOldAudioBeforePreparingReplacementAndPreservesChannelAndControls()throws Exception {
@@ -60,5 +61,12 @@ public class LivePlayerReplacementTest {
   }
   @Test public void backgroundOrClosedPlaybackCannotBeRestarted()throws Exception {
     field("playing",false);recover();assertEquals(0,activity.creations);verify(oldPlayer,never()).release();
+  }
+  @Test public void audioModeChangePreservesDeliberatePauseAndTrackPreference()throws Exception {
+    when(oldPlayer.getPlayWhenReady()).thenReturn(false);
+    androidx.media3.common.TrackSelectionParameters tracks=new androidx.media3.common.TrackSelectionParameters.Builder(activity).setPreferredAudioLanguage("es").build();
+    when(oldPlayer.getTrackSelectionParameters()).thenReturn(tracks);
+    Method method=MainActivity.class.getDeclaredMethod("rebuildLivePlayer",Catalog.Item.class,ExoPlayer.class,boolean.class);method.setAccessible(true);method.invoke(activity,channel,oldPlayer,true);
+    verify(oldPlayer).release();verify(newPlayer).setTrackSelectionParameters(tracks);verify(newPlayer).setPlayWhenReady(false);verify(newPlayer,never()).play();verify(newPlayer).prepare();assertSame(channel,field("currentItem"));
   }
 }

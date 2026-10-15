@@ -1,0 +1,28 @@
+// Official Media3 extension sources are checked out at the pinned 1.11.1 commit in CI.
+plugins { id 'com.android.library' }
+
+def upstream = rootProject.file('vendor/media/libraries/decoder_ffmpeg/src/main')
+android {
+ namespace 'androidx.media3.decoder.ffmpeg'
+ compileSdk 36
+ ndkVersion '26.1.10909125'
+ defaultConfig {
+  minSdk 23
+  externalNativeBuild { cmake { arguments '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384' } }
+ }
+ sourceSets { main { java.srcDirs = [new File(upstream, 'java')]; manifest.srcFile 'src/main/AndroidManifest.xml'; assets.srcDir layout.buildDirectory.dir('generated/notices') } }
+ externalNativeBuild { cmake { path new File(upstream, 'jni/CMakeLists.txt'); version '3.22.1' } }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+tasks.register('prepareAudioLicenseNotices', Copy) {
+ from(rootProject.file('vendor/media/LICENSE')) { rename { 'MEDIA3-APACHE-2.0.txt' } }
+ from(new File(upstream, 'jni/ffmpeg/COPYING.LGPLv2.1')) { rename { 'FFMPEG-LGPL-2.1.txt' } }
+ into layout.buildDirectory.dir('generated/notices')
+}
+tasks.named('preBuild') { dependsOn 'prepareAudioLicenseNotices' }
+dependencies {
+ api 'androidx.media3:media3-decoder:1.11.1'
+ implementation 'androidx.media3:media3-exoplayer:1.11.1'
+ implementation 'androidx.annotation:annotation:1.9.1'
+ compileOnly 'org.checkerframework:checker-qual:3.49.0'
+}
