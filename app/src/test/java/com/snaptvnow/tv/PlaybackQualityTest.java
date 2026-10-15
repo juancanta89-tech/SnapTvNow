@@ -17,8 +17,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.annotation.Config;
-import org.robolectric.shadows.ShadowLooper;
 import org.robolectric.shadows.ShadowSystemClock;
 import java.time.Duration;
 import java.util.Collections;
@@ -28,7 +29,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-@RunWith(RobolectricTestRunner.class) @Config(sdk=28)
+@RunWith(RobolectricTestRunner.class) @Config(sdk=28) @LooperMode(LooperMode.Mode.PAUSED)
 public class PlaybackQualityTest {
  private static final String FIRST="A".repeat(80),SECOND="B".repeat(80);
  private void receipt(PlaybackTransfer transfer,String url,String ticket){
@@ -76,7 +77,7 @@ public class PlaybackQualityTest {
   NativePlaybackMetrics metrics=new NativePlaybackMetrics(player,sync,new ProfileReference("live","123","ccf",""),transfer);
   try{
    metrics.onRenderedFirstFrame();DecoderCounters decoder=new DecoderCounters();metrics.onVideoEnabled(null,decoder);decoder.renderedOutputBufferCount=300;
-   ShadowLooper.idleMainLooper(11,TimeUnit.SECONDS);assertTrue(reported.await(5,TimeUnit.SECONDS));
+   Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(11));assertTrue("The scheduled player report must reach the scoped telemetry transport",reported.await(5,TimeUnit.SECONDS));
    assertEquals(FIRST,scoped[0].getString("quality_ticket"));assertTrue(scoped[0].getJSONObject("metric").getLong("decoded")>0);assertTrue(scoped[0].getJSONObject("metric").getLong("watchMs")>=5000);assertEquals(1080,scoped[0].getJSONObject("observation").getInt("height"));
   }finally{metrics.close();sync.stop();}
  }
