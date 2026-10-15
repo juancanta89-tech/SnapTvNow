@@ -57,6 +57,47 @@ public class UpdateInstallerTest {
     candidate.signatures=new Signature[]{new Signature("ccdd")};
     try{UpdateInstaller.validate(installed,candidate,41);fail();}catch(IOException correct){}
   }
+  @Test public void modernOsCanUseLegacyCertificatesWhenSigningInfoIsMissing() throws Exception {
+    PackageInfo installed=info("com.snaptvnow.tv",45,"aabb"),candidate=info("com.snaptvnow.tv",46,"aabb");
+    installed.signingInfo=null;UpdateInstaller.validate(installed,candidate,46);
+    installed=info("com.snaptvnow.tv",45,"aabb");candidate.signingInfo=null;UpdateInstaller.validate(installed,candidate,46);
+    installed.signingInfo=null;UpdateInstaller.validate(installed,candidate,46);
+    candidate.signatures=new Signature[]{new Signature("ccdd")};
+    try{UpdateInstaller.validate(installed,candidate,46);fail();}catch(IOException expected){assertTrue(expected.getMessage().contains("no tiene la firma"));}
+  }
+  @Test public void emptyModernFieldsCanUseTheVerifiedLegacyCertificate() throws Exception {
+    PackageInfo installed=info("com.snaptvnow.tv",45,"aabb"),candidate=info("com.snaptvnow.tv",46,"aabb");
+    Shadows.shadowOf(installed.signingInfo).setSignatures(new Signature[0]);
+    Shadows.shadowOf(candidate.signingInfo).setSignatures(new Signature[0]);
+    UpdateInstaller.validate(installed,candidate,46);
+  }
+  @Test public void modernMismatchNeverFallsBackToMatchingLegacyFields() throws Exception {
+    PackageInfo installed=info("com.snaptvnow.tv",45,"aabb"),candidate=info("com.snaptvnow.tv",46,"ccdd");
+    candidate.signatures=installed.signatures;
+    try{UpdateInstaller.validate(installed,candidate,46);fail();}catch(IOException expected){assertTrue(expected.getMessage().contains("no tiene la firma"));}
+  }
+  @Test public void unreadableSignaturesAreDistinguishedFromDifferentKeys() throws Exception {
+    PackageInfo installed=info("com.snaptvnow.tv",45,"aabb"),candidate=info("com.snaptvnow.tv",46,"aabb");
+    candidate.signingInfo=null;candidate.signatures=null;
+    try{UpdateInstaller.validate(installed,candidate,46);fail();}catch(IOException expected){assertTrue(expected.getMessage().contains("No se pudo leer la firma de la APK"));}
+    candidate=info("com.snaptvnow.tv",46,"aabb");installed.signingInfo=null;installed.signatures=null;
+    try{UpdateInstaller.validate(installed,candidate,46);fail();}catch(IOException expected){assertTrue(expected.getMessage().contains("No se pudo leer la firma de esta instalación"));}
+  }
+  @Test public void verifyRequestsModernAndLegacySignatureFieldsTogether() throws Exception {
+    Context context=mock(Context.class);PackageManager manager=mock(PackageManager.class);File file=new File("candidate.apk");
+    when(context.getPackageManager()).thenReturn(manager);when(context.getPackageName()).thenReturn("com.snaptvnow.tv");
+    int flags=PackageManager.GET_SIGNATURES|PackageManager.GET_SIGNING_CERTIFICATES;
+    PackageInfo installed=info("com.snaptvnow.tv",45,"aabb"),candidate=info("com.snaptvnow.tv",46,"aabb");candidate.signingInfo=null;
+    when(manager.getPackageInfo("com.snaptvnow.tv",flags)).thenReturn(installed);when(manager.getPackageArchiveInfo(file.getAbsolutePath(),flags)).thenReturn(candidate);
+    UpdateInstaller.verify(context,file,46);verify(manager).getPackageInfo("com.snaptvnow.tv",flags);verify(manager).getPackageArchiveInfo(file.getAbsolutePath(),flags);
+  }
+  @Test public void malformedCertificateArraysRemainRejected() throws Exception {
+    PackageInfo installed=info("com.snaptvnow.tv",45,"aabb"),candidate=info("com.snaptvnow.tv",46,"aabb");
+    candidate.signingInfo=null;candidate.signatures=new Signature[]{null};
+    try{UpdateInstaller.validate(installed,candidate,46);fail();}catch(IOException expected){}
+    Signature key=new Signature("aabb");candidate.signatures=new Signature[]{key,key};
+    try{UpdateInstaller.validate(installed,candidate,46);fail();}catch(IOException expected){}
+  }
   @Test public void unknownSourcePermissionTargetsThisAppAndIsRechecked() {
     Context context=mock(Context.class);PackageManager manager=mock(PackageManager.class);
     when(context.getPackageManager()).thenReturn(manager);when(context.getPackageName()).thenReturn("com.snaptvnow.tv");
