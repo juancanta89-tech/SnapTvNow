@@ -28,7 +28,7 @@ public final class XtreamClient {
     if(server==null)throw new Exception("No hay servidor configurado");
     Uri.Builder b=Uri.parse(server+"/player_api.php").buildUpon().appendQueryParameter("username",username).appendQueryParameter("password",password);
     if(!action.isEmpty())b.appendQueryParameter("action",action);
-    if(extra!=null)b.appendQueryParameter(action.equals("get_series_info")?"series_id":"category_id",extra);
+    if(extra!=null)b.appendQueryParameter((action.equals("get_series_info")||action.equals("get_exclusive_series_info"))?"series_id":"category_id",extra);
     URL url=new URL(b.build().toString());
     HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(connectMs);c.setReadTimeout(readMs);c.setRequestProperty("Accept","application/json");
     try {
@@ -84,7 +84,11 @@ public final class XtreamClient {
     String categories=scope==CatalogSearch.Scope.MOVIES?"get_vod_categories":scope==CatalogSearch.Scope.SERIES?"get_series_categories":"get_live_categories";
     JSONArray folders=new JSONArray(request(server,username,password,categories,null,9000,13000,20_000_000));
     for(int i=0;i<folders.length();i++){JSONObject folder=folders.optJSONObject(i);if(folder!=null)names.put(folder.optString("category_id"),folder.optString("category_name","Carpeta"));}
-    return parseItems(server,username,password,scope.section,list,names);
+    List<Catalog.Item> result=parseItems(server,username,password,scope.section,list,names);
+    if(ProfileReference.managed(server)&&scope!=CatalogSearch.Scope.CHANNELS){
+      try{for(Catalog.Item item:exclusives())if(item.category.equals(scope.section))result.add(item);}catch(Exception ignored){ /* The exclusive screen offers a separate retry. */ }
+    }
+    return result;
   }
   static List<Catalog.Item> parseItems(String server,String username,String password,String section,JSONArray list,java.util.Map<String,String> categoryNames) {
     String kind=section.equals("Películas")?"movie":section.equals("Series")?"series":"live";
@@ -102,7 +106,12 @@ public final class XtreamClient {
     }
     return out;
   }
+  public List<Catalog.Item> exclusives() throws Exception {
+    if(!ProfileReference.managed(sourceServer))return new ArrayList<>();
+    return ExclusiveCatalog.parse(sourceServer,username,password,new JSONObject(request("get_exclusive_catalog",null)));
+  }
   public List<Catalog.Item> episodes(Catalog.Item series) throws Exception {
+    if(ExclusiveCatalog.item(series.id))return ExclusiveCatalog.episodes(sourceServer,username,password,series,new JSONObject(request("get_exclusive_series_info",ExclusiveCatalog.rawId(series.id))));
     String id=series.id.replace("series","");JSONObject root=new JSONObject(request("get_series_info",id));
     return parseEpisodes(sourceServer,username,password,series,root);
   }
@@ -121,6 +130,7 @@ public final class XtreamClient {
   private static int numericSeason(String season){try{return Integer.parseInt(season);}catch(Exception ignored){return 0;}}
   Catalog.Item resume(PlaybackHistory.Entry entry) throws Exception {
     Catalog.Item item=entry.item;String kind=item.id.startsWith("movie")?"movie":item.id.startsWith("episode")?"series":"";
+    if(ExclusiveCatalog.item(item.id)&&!item.id.startsWith("series"))return new Catalog.Item(item.id,item.title,item.category,ExclusiveCatalog.playback(sourceServer,username,password,ExclusiveCatalog.rawId(item.id),entry.extension),item.description,item.artwork,item.seriesId,item.seriesTitle,item.seasonNumber,item.episodeNumber).withProfile(item.profile);
     String id=item.id.replaceFirst("^(movie|episode)","");if(kind.isEmpty()||!id.matches("[0-9]+")||sourceServer==null)throw new Exception("Título no disponible");
     String ext=entry.extension.matches("[A-Za-z0-9]{1,12}")?entry.extension:"mp4";
     String path=sourceServer+"/"+kind+"/"+Uri.encode(username)+"/"+Uri.encode(password)+"/"+id+"."+ext;

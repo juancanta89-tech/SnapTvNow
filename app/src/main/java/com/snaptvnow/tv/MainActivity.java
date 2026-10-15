@@ -47,11 +47,14 @@ import java.util.Set;
 
 public class MainActivity extends Activity {
   private static final int NAVY=0xff071729, PANEL=0xff10283d, CYAN=0xff29dce8, WHITE=Color.WHITE, MUTED=0xffb5c9d3;
-  private static final String[] SECTIONS={"Inicio","TV en vivo","PPV HOY","Películas","Series","Continuar viendo","Mi lista"};
-  private static final String[] ICONS={"⌂","▣","★","▶","▤","↻","♡"};
+  private static final String[] SECTIONS={"Inicio","TV en vivo","PPV HOY","Películas","Series",ExclusiveCatalog.SECTION,"Continuar viendo","Mi lista"};
+  private static final String[] ICONS={"⌂","▣","★","▶","▤","✦","↻","♡"};
   private List<Catalog.Item> items=Catalog.demo();
   private XtreamClient client;
   private String loadedSection="";
+  private List<Catalog.Item> exclusiveItems=new ArrayList<>();
+  private boolean exclusiveLoaded,exclusiveLoading,exclusiveSeries;
+  private String exclusiveQuery="",exclusiveError="";
   private XtreamClient.Group activeGroup;
   private String activeGroupSection="";
   private android.graphics.Bitmap adBitmap;
@@ -126,7 +129,7 @@ public class MainActivity extends Activity {
     nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;applyProfiles();if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();}));
     if(nativeProfile!=null){nativeProfile.refresh();profileTick=new Runnable(){int ticks;public void run(){if(generation!=profileGeneration||nativeProfile==null)return;if(vodSession!=null){vodSession.saveNow();nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(++ticks%8==0)nativeProfile.refresh();controlHandler.postDelayed(this,15000);}};controlHandler.postDelayed(profileTick,15000);}
   }
-  private void closeProfile(){loginRequest++;profileGeneration++;profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
+  private void closeProfile(){exclusiveItems.clear();exclusiveLoaded=exclusiveLoading=false;exclusiveQuery=exclusiveError="";loginRequest++;profileGeneration++;profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
   private void applyProfiles(){
     if(nativeProfile==null)return;
     for(Catalog.Item item:seen.values())applyProfile(item);
@@ -257,7 +260,7 @@ public class MainActivity extends Activity {
       TextView accountButton=action("◎",()->{section="Cuenta";render();});top.addView(accountButton,new LinearLayout.LayoutParams(d(48),d(40)));gap(holder,8);}
     ScrollView sc=new ScrollView(this);sc.setFillViewport(true);holder.addView(sc,new LinearLayout.LayoutParams(-1,0,1));body=col();sc.addView(body);
     switch(section){case "Inicio":home();break;case "Explorar":explore();break;case "PPV HOY":sports();break;
-      case "Cuenta":account();break;
+      case "Cuenta":account();break;case ExclusiveCatalog.SECTION:exclusivePage();break;
       case "Buscar":search();break;case "Continuar viendo":continueWatching(false);break;case "Mi lista":favoritesPage();break;
       default:continueSectionPreview();if(client!=null&&!section.equals(loadedSection))categoryPicker();else catalog();}
   }
@@ -454,10 +457,33 @@ public class MainActivity extends Activity {
   }
   private void home(){
     hero("Todo tu entretenimiento","TV en vivo, películas y series en un solo lugar",this::refreshContent);gap(body,18);
-    title("Elige qué ver");String[] names={"TV en vivo","Películas","Series"};String[] icons={"◉","▶","▤"};int[] colors={0xff0d6887,0xff71532c,0xff603e85};cards(names,icons,colors);
+    title("Elige qué ver");body.addView(new HomeCategoryGrid(this,wide,this::categoryTile),new LinearLayout.LayoutParams(-1,-2));
     gap(body,18);continueWatching(true);
     if(!items.isEmpty()){gap(body,18);title(client==null?"Vista previa":"De tu última categoría");catalogRow(items.subList(0,Math.min(12,items.size())));}
     gap(body,12);body.addView(text(client==null?"Vista de demostración. Conecta una línea para consultar su catálogo.":"Explora las categorías de tu línea para ver canales y títulos disponibles.",13,MUTED,false));
+  }
+  private void exclusivePage(){
+    title("EXCLUSIVO DE SNAPTV");body.addView(text("Nuestra selección de películas y series",14,MUTED,false));gap(body,12);
+    if(client==null||!ProfileReference.managed(client.server())){body.addView(text("Conecta tu línea de SNAPTVNOW para consultar esta selección.",16,MUTED,false));return;}
+    LinearLayout tabs=new LinearLayout(this);body.addView(tabs);
+    for(int i=0;i<2;i++){final boolean series=i==1;TextView tab=action(series?"Series":"Películas",()->{exclusiveSeries=series;render();});if(series==exclusiveSeries){tab.setTextColor(NAVY);tab.setBackground(gradient(CYAN,0xff12a9c6,12));}LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,d(46),1);lp.setMargins(0,0,d(6),0);tabs.addView(tab,lp);}
+    gap(body,12);LinearLayout searchRow=new LinearLayout(this);body.addView(searchRow);SearchInput input=new SearchInput(this);input.setTextColor(WHITE);input.setHintTextColor(MUTED);input.setHint("Buscar en exclusivos");input.setBackground(shape(PANEL,12));input.setPadding(d(14),0,d(14),0);input.setText(exclusiveQuery);searchRow.addView(input,new LinearLayout.LayoutParams(0,d(48),1));TextView search=action("Buscar",()->{});searchRow.addView(search,new LinearLayout.LayoutParams(d(90),d(48)));gap(body,10);
+    TextView refresh=action("Actualizar selección",()->{if(exclusiveLoading)return;exclusiveLoaded=false;exclusiveError="";render();});body.addView(refresh,new LinearLayout.LayoutParams(d(210),d(44)));gap(body,12);
+    TextView status=text("",14,MUTED,false);body.addView(status);LinearLayout results=col();body.addView(results,new LinearLayout.LayoutParams(-1,-2));
+    Runnable filter=()->{results.removeAllViews();List<Catalog.Item> matches=new ArrayList<>();String query=exclusiveNormalize(exclusiveQuery);for(Catalog.Item item:exclusiveItems)if(item.id.startsWith(exclusiveSeries?"series":"movie")&&exclusiveNormalize(item.title).contains(query))matches.add(item);
+      status.setText(exclusiveLoading?"Cargando selección…":!exclusiveError.isEmpty()?exclusiveError:matches.size()+" títulos");
+      if(matches.isEmpty()&&exclusiveLoaded)results.addView(text(exclusiveQuery.isEmpty()?"Todavía no hay títulos en esta sección.":"No hay títulos con esa búsqueda.",16,MUTED,false));
+      if(!matches.isEmpty())results.addView(new CatalogCardGrid(this,matches,television(),catalogWindowWidth(),item->poster(item,PANEL,false)),new LinearLayout.LayoutParams(-1,-2));
+    };
+    input.bind(search,()->{exclusiveQuery=input.getText().toString();filter.run();});input.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){exclusiveQuery=s.toString();filter.run();}public void afterTextChanged(android.text.Editable e){}});
+    if(!exclusiveLoaded&&!exclusiveLoading){exclusiveLoading=true;loadExclusives();}filter.run();
+  }
+  private static String exclusiveNormalize(String value){return java.text.Normalizer.normalize(value,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+","").toLowerCase(Locale.ROOT);}
+  private void loadExclusives(){
+    final XtreamClient session=client;final int generation=profileGeneration;
+    new Thread(()->{List<Catalog.Item> found=null;try{found=session.exclusives();}catch(Exception ignored){}final List<Catalog.Item> loaded=found;
+      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;exclusiveLoading=false;exclusiveLoaded=true;exclusiveError=loaded==null?"No se pudo cargar la selección. Pulsa Actualizar para reintentar.":"";if(loaded!=null){exclusiveItems=new ArrayList<>(loaded);for(Catalog.Item item:loaded){seen.put(item.id,item);applyProfile(item);}accountFavorites.save(favoriteAccount,favorites);}if(!playing&&section.equals(ExclusiveCatalog.SECTION))render();});
+    }).start();
   }
   private void continueWatching(boolean preview){
     if(!preview)hydrateProfiles();
@@ -892,7 +918,7 @@ public class MainActivity extends Activity {
   ExoPlayer createPlayer(){
     playbackTransfer=new PlaybackTransfer();
     androidx.media3.datasource.DefaultHttpDataSource.Factory http=new androidx.media3.datasource.DefaultHttpDataSource.Factory()
-        .setConnectTimeoutMs(10_000).setReadTimeoutMs(20_000);
+        .setConnectTimeoutMs(10_000).setReadTimeoutMs(currentItem!=null&&ExclusiveCatalog.item(currentItem.id)?45_000:20_000);
     if(nativeProfile!=null&&client!=null&&ProfileReference.managed(client.server()))http.setUserAgent("SNAPTVNOW/"+UpdateChecker.installedName(this)+" (Android)").setDefaultRequestProperties(java.util.Collections.singletonMap(PlaybackTransfer.MONITOR_REQUEST_HEADER,java.util.UUID.randomUUID().toString()));
     androidx.media3.datasource.DefaultDataSource.Factory data=new androidx.media3.datasource.DefaultDataSource.Factory(this,http).setTransferListener(playbackTransfer);
     return new ExoPlayer.Builder(this,new androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))

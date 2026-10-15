@@ -47,6 +47,7 @@ public class PlaybackQualityTest {
   DataSource duplicate=mock(DataSource.class);when(duplicate.getResponseHeaders()).thenReturn(Collections.singletonMap(PlaybackTransfer.MONITOR_RESPONSE_HEADER,Arrays.asList(FIRST,SECOND)));
   transfer.onTransferStart(duplicate,new DataSpec(Uri.parse("https://api.snaptvnow.com/movie/test/test/1.mp4")),true);assertEquals(FIRST,transfer.qualityTicket());
   receipt(transfer,"https://api.snaptvnow.com:443/series/test/test/2.mkv",SECOND);assertEquals(SECOND,transfer.qualityTicket());
+  receipt(transfer,"https://api.snaptvnow.com/exclusive/test/test/custom-movie.m3u8",FIRST);assertEquals(FIRST,transfer.qualityTicket());
  }
  @Test public void retryKeepsTheOriginalReceiptAndAgesTheObservationWithoutPersistingIt()throws Exception{
   Context context=RuntimeEnvironment.getApplication();List<JSONObject> sent=new ArrayList<>();

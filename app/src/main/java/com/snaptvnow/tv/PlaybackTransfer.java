@@ -18,7 +18,7 @@ final class PlaybackTransfer implements TransferListener {
   @Override public void onTransferStart(DataSource source,DataSpec spec,boolean network) {
     if(!network||source==null||spec==null)return;
     android.net.Uri uri=spec.uri;
-    if(!"https".equals(uri.getScheme())||!"api.snaptvnow.com".equalsIgnoreCase(uri.getHost())||uri.getPort()!=-1&&uri.getPort()!=443||uri.getUserInfo()!=null||uri.getPath()==null||!uri.getPath().matches("/(live|movie|series)/.+"))return;
+    if(!"https".equals(uri.getScheme())||!"api.snaptvnow.com".equalsIgnoreCase(uri.getHost())||uri.getPort()!=-1&&uri.getPort()!=443||uri.getUserInfo()!=null||uri.getPath()==null||!uri.getPath().matches("/(live|movie|series|exclusive)/.+"))return;
     for(Map.Entry<String,List<String>> header:source.getResponseHeaders().entrySet()){
       if(!MONITOR_RESPONSE_HEADER.equalsIgnoreCase(header.getKey()))continue;
       List<String> values=header.getValue();
