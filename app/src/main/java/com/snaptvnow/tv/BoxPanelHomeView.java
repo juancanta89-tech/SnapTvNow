@@ -33,7 +33,7 @@ final class BoxPanelHomeView extends LinearLayout {
   super(context);wide=television;items=catalog;navigate=go;open=play;design=BoxPanel.design();accent=BoxPanel.accent();background=BoxPanel.background();compact=BoxPanel.style().optString("density").equals("compact");
   setOrientation(VERTICAL);setContentDescription("Diseño "+design);setTag("boxpanel-home-"+design);
   switch(design){
-   case "compact": portals(true);space(10);guide();break;
+   case "compact": TextView welcome=label(BoxPanel.style().optString("welcome","").isEmpty()?"Todo tu contenido en un solo lugar":BoxPanel.style().optString("welcome"),wide?19:17,true);addView(welcome);space(12);portals(true);space(10);guide();break;
    case "cinema": addView(hero(220,"UNA SELECCIÓN PARA TI","Tu próxima gran historia",false));space(14);categoryStrip(false);break;
    case "aura": addView(hero(wide?250:300,"HECHO PARA TU MOMENTO","Historias que se quedan",true));space(12);categoryStrip(true);break;
    case "panorama": addView(hero(wide?300:320,"ABRE TU HORIZONTE","Un mundo por descubrir",true));space(10);categoryStrip(false);break;
