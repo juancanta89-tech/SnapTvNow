@@ -68,7 +68,10 @@ jobs:
         run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Compile two isolated BoxPanel packages and their update
         run: |
-          python3 -m pip install Pillow==12.3.0
+          python3 -m venv "$RUNNER_TEMP/boxpanel-python"
+          "$RUNNER_TEMP/boxpanel-python/bin/pip" install Pillow==12.3.0
+          echo "$RUNNER_TEMP/boxpanel-python/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/boxpanel-python/bin:$PATH"
           node scripts/test-boxpanel-packages.mjs
       - name: Enable Android emulator KVM
         run: |

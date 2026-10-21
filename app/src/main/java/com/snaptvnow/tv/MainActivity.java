@@ -1126,7 +1126,10 @@ public class MainActivity extends Activity {
           if(generation!=boxGeneration||isFinishing()||isDestroyed())return;
           if(!BoxPanel.authorized())showBoxBlocked();
           else if(boxBlocked){recreate();return;}
-          else {if(!playing&&!previous.equals(BoxPanel.brand().toString()))render();loadAdvertisement();UpdateChecker.check(MainActivity.this);}
+          else {
+            if(client!=null){try{List<String> servers=AppConfig.parseServers(BoxPanel.configuration().getJSONArray("servers"));if(!servers.contains(client.server().replaceAll("/$",""))){releaseVideo();playing=false;closeProfile();client=null;logged=false;recreate();return;}}catch(Exception ignored){}}
+            if(!playing&&!previous.equals(BoxPanel.brand().toString()))render();loadAdvertisement();UpdateChecker.check(MainActivity.this);
+          }
           controlHandler.postDelayed(this,300000);
         });
       },"boxpanel-state").start();

@@ -78,7 +78,11 @@ jobs:
             vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/libavutil/ffversion.h
           key: snaptv-audio-1.11.1-6.1.4-ndk26b-v1-${{ runner.os }}
       - run: bash scripts/build-native-audio.sh
-      - run: python3 -m pip install Pillow==12.3.0
+      - name: Prepare branding tools
+        run: |
+          python3 -m venv "$RUNNER_TEMP/boxpanel-python"
+          "$RUNNER_TEMP/boxpanel-python/bin/pip" install Pillow==12.3.0
+          echo "$RUNNER_TEMP/boxpanel-python/bin" >> "$GITHUB_PATH"
       - name: Decode existing private signing key
         env:
           SIGNING_KEY_B64: ${{ secrets.SNAPTVNOW_KEYSTORE_BASE64 }}

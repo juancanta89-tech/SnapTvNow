@@ -9,6 +9,7 @@ def productionSigning = [
 def boxFile = System.getenv('BOXPANEL_BUILD_FILE')
 def box = boxFile ? new groovy.json.JsonSlurper().parse(file(boxFile)) : null
 if (box && (!(box.appId ==~ /[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}/) || box.packageName != 'com.snaptvnow.box.a' + box.appId.replace('-', '') || !(box.versionCode instanceof Number) || box.versionCode < 1 || box.versionCode > 2100000000 || !(box.design in ['classic','cinema','compact']))) throw new GradleException('Invalid BoxPanel build identity')
+if (box && (!file('build/generated/boxpanel/assets/boxpanel.json').isFile() || new groovy.json.JsonSlurper().parse(file('build/generated/boxpanel/assets/boxpanel.json')) != box)) throw new GradleException('Run prepare-boxpanel.py for this exact app before building')
 android { namespace 'com.snaptvnow.tv'; compileSdk 36
  defaultConfig { applicationId box ? box.packageName : 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode box ? box.versionCode.intValue() : 50; versionName box ? box.versionName : '1.0.21'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'; manifestPlaceholders = [appLabel: box ? box.name : 'SNAPTVNOW'] }
  signingConfigs {
