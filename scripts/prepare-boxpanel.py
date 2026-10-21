@@ -23,6 +23,15 @@ def prepare(source, root):
     style = value.get('style')
     if style is not None and (not isinstance(style, dict) or style.get('wallpaper') not in ('aurora','midnight','sunset','ocean') or style.get('density') not in ('comfortable','compact') or not isinstance(style.get('welcome'), str) or len(style['welcome']) > 80 or any(ord(c) < 32 for c in style['welcome'])):
         raise ValueError('Invalid app style')
+    artwork=value.get('artwork', {})
+    slots=('background','hero','login','tv','movies','series','poster1','poster2','poster3','poster4','poster5')
+    if not isinstance(artwork, dict) or any(key not in slots for key in artwork): raise ValueError('Invalid artwork slots')
+    for selection in artwork.values():
+        if not isinstance(selection, dict) or selection.get('fit') not in ('cover','contain'): raise ValueError('Invalid artwork fit')
+        data=selection.get('data','')
+        if len(data)>350000 or not re.fullmatch(r'data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+',data): raise ValueError('Invalid artwork')
+        with Image.open(io.BytesIO(base64.b64decode(data.split(',',1)[1],validate=True))) as check:
+            if check.width*check.height>16000000: raise ValueError('Artwork dimensions too large')
     folder = pathlib.Path(root) / 'app/build/generated/boxpanel'
     if folder.exists(): shutil.rmtree(folder)
     (folder / 'assets').mkdir(parents=True)
