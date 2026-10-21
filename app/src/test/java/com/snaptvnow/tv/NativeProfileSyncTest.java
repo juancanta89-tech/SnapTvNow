@@ -79,8 +79,16 @@ public class NativeProfileSyncTest {
   try{sync[0].queue(favorite(now,false));sync[0].refresh();assertTrue(uploaded.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(2,sent.size());assertFalse(sent.get(0).getBoolean("deleted"));assertTrue(sent.get(1).getBoolean("deleted"));}
   finally{sync[0].stop();}
  }
- @Test public void historyIsSeparatedByServiceAndHttpsIsRequired()throws Exception{
-  PlaybackHistory history=new PlaybackHistory(context);String a=AccountFavorites.scope("https://first.example","alice"),b=AccountFavorites.scope("https://second.example","alice");history.save(a,"movie123",90000,120000,true);assertEquals(0,history.position(b,"movie123"));assertEquals("https://api.snaptvnow.com",AppConfig.validate("https://api.snaptvnow.com/"));try{AppConfig.validate("http://provider.example");fail();}catch(Exception expected){}
+ @Test public void historyIsSeparatedByService()throws Exception{
+  PlaybackHistory history=new PlaybackHistory(context);String a=AccountFavorites.scope("https://first.example","alice"),b=AccountFavorites.scope("https://second.example","alice");history.save(a,"movie123",90000,120000,true);assertEquals(0,history.position(b,"movie123"));
+ }
+ @Test public void httpLoginServersNeverEnableManagedProfileSync()throws Exception{
+  assertEquals("https://api.snaptvnow.com",AppConfig.validate("https://api.snaptvnow.com/"));
+  for(String server:Arrays.asList("http://provider.example","http://api.snaptvnow.com")){
+   assertEquals(server,AppConfig.validate(server+"/"));
+   assertFalse(ProfileReference.managed(server));
+   assertNull(NativeProfileSync.connect(context,null,server,()->{}));
+  }
  }
 
 }
