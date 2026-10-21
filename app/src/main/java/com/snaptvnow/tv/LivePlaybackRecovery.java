@@ -22,7 +22,7 @@ final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final Runnable watchdog=this::inspect;
   private final Runnable reconnect;
-  private boolean closed, pending, terminalFailure, videoExpected;
+  private boolean closed, pending, terminalFailure, videoExpected, readySeen;
   private String reason;
   private long lastPosition, lastProgress, healthySince;
   private long bufferingSince=-1, lastBufferProgress, buffered, byteCheckpoint, segmentMs;
@@ -46,14 +46,15 @@ final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
     return player.getPlayWhenReady() && player.getPlaybackSuppressionReason()==Player.PLAYBACK_SUPPRESSION_REASON_NONE;
   }
   private void resetProgress() {
+    if(player.getPlaybackState()==Player.STATE_READY)readySeen=true;
     lastPosition=player.getCurrentPosition();lastProgress=SystemClock.elapsedRealtime();lastFrame=lastProgress;healthySince=0;
     bufferingSince=player.getPlaybackState()==Player.STATE_BUFFERING?lastProgress:-1;
     buffered=player.getTotalBufferedDuration();byteCheckpoint=networkBytes();lastBufferProgress=lastProgress;
   }
   private long networkBytes(){return transfer==null?0:transfer.bytes();}
   void segmentDurationUs(long us){if(us>0)segmentMs=Math.min(60_000,us/1_000);}
-  private long quietWindow(){return Math.max(15_000,Math.min(45_000,segmentMs*2+2_000));}
-  private long loadingWindow(){return Math.min(90_000,Math.max(45_000,quietWindow()*3));}
+  private long quietWindow(){return LivePlaybackTiming.quietWindow(readySeen,segmentMs);}
+  private long loadingWindow(){return LivePlaybackTiming.loadingWindow(readySeen,segmentMs);}
   private void beginBuffering(long now){
     if(bufferingSince>=0)return;
     bufferingSince=now;lastBufferProgress=now;buffered=player.getTotalBufferedDuration();byteCheckpoint=networkBytes();healthySince=0;

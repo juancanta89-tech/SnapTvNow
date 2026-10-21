@@ -33,7 +33,10 @@ public class LivePlaybackRecoveryTest {
   private void millis(long ms){Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms));}
   @After public void tearDown(){recovery.close();}
   @Test public void silentSourceRecoversAfterTheQuietWindow(){
-    millis(15_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);assertEquals("buffering_no_progress",reason);
+    millis(9_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);assertEquals("buffering_no_progress",reason);
+  }
+  @Test public void silentStartupIsBoundedEvenForLongHlsSegments(){
+    recovery.segmentDurationUs(12_000_000);millis(9_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }
   @Test public void establishedChannelIsNotDiscardedAfterThreeSecondsOfLoading(){
     ready();buffering();millis(3_250);assertEquals(0,reconnects);
@@ -41,7 +44,7 @@ public class LivePlaybackRecoveryTest {
   }
   @Test public void recreatedSessionAllowsFullInitialLoadingWindow(){
     ready();recovery.close();when(player.getPlaybackState()).thenReturn(Player.STATE_BUFFERING);create();
-    millis(8_250);assertEquals(0,reconnects);millis(7_000);assertEquals(1,reconnects);
+    millis(8_250);assertEquals(0,reconnects);millis(1_000);assertEquals(1,reconnects);
   }
   @Test public void audioSinkFailureRequestsFreshSessionQuickly(){
     recovery.onPlayerError(new PlaybackException("Audio output failed",null,PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED));millis(249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
@@ -87,7 +90,7 @@ public class LivePlaybackRecoveryTest {
     for(int i=1;i<=32;i++){when(player.getCurrentPosition()).thenReturn(i*1_000L);millis(1_000);}
     assertEquals(0,retries.failures);assertEquals(0,retries.recoveryRequests);recovery.failure("audio_sink_error");millis(250);assertEquals(1,reconnects);
   }
-  @Test public void canceledSoftTimeoutDoesNotSpendAnActualRecoveryAttempt(){millis(15_000);ready();millis(250);assertEquals(0,retries.recoveryRequests);}
+  @Test public void canceledSoftTimeoutDoesNotSpendAnActualRecoveryAttempt(){millis(9_000);ready();millis(250);assertEquals(0,retries.recoveryRequests);}
   @Test public void duplicateFatalErrorsCountOneActualRequestAcrossRecreation(){recovery.failure("decoder_error");recovery.failure("duplicate");millis(250);assertEquals(1,retries.recoveryRequests);recovery.close();create();assertEquals(1,retries.recoveryRequests);recovery.failure("decoder_error");millis(500);assertEquals(2,retries.recoveryRequests);}
   @Test public void retryBackoffSurvivesRecreationAndIsBounded(){
     for(int i=0;i<10;i++){long delay=retries.delay();assertTrue(delay>=250 && delay<=8_000);}
@@ -99,7 +102,7 @@ public class LivePlaybackRecoveryTest {
     assertEquals(0,reconnects);
   }
   @Test public void twelveSecondHlsSegmentsReceiveAnAppropriateLoadingWindow(){
-    recovery.segmentDurationUs(12_000_000);millis(20_000);assertEquals(0,reconnects);
+    ready();buffering();recovery.segmentDurationUs(12_000_000);millis(20_000);assertEquals(0,reconnects);
     millis(6_250);assertEquals(1,reconnects);
   }
   @Test public void growingBufferedMediaPreservesTheExistingPlayer(){
@@ -109,10 +112,10 @@ public class LivePlaybackRecoveryTest {
   }
   @Test public void slowChunkedDownloadsAreNotAbortedWhileBytesArrive(){
     for(int i=1;i<=25;i++){transfer.onBytesTransferred(null,null,true,64*1024);millis(1_000);}
-    assertEquals(0,reconnects);millis(15_250);assertEquals(1,reconnects);
+    assertEquals(0,reconnects);millis(9_250);assertEquals(1,reconnects);
   }
   @Test public void smallPlaylistRefreshesDoNotHideAMissingMediaSignal(){
-    for(int i=1;i<=15;i++){transfer.onBytesTransferred(null,null,true,1024);millis(1_000);}
+    for(int i=1;i<=9;i++){transfer.onBytesTransferred(null,null,true,1024);millis(1_000);}
     millis(250);assertEquals(1,reconnects);assertEquals("buffering_no_progress",reason);
   }
   @Test public void endlessDataWithoutPlayableMediaHasABoundedDeadline(){
@@ -120,10 +123,10 @@ public class LivePlaybackRecoveryTest {
     millis(250);assertEquals(1,reconnects);assertEquals("buffering_deadline",reason);
   }
   @Test public void lateReadyDuringBackoffCancelsASoftRecovery(){
-    millis(15_000);ready();millis(250);assertEquals(0,reconnects);
+    millis(9_000);ready();millis(250);assertEquals(0,reconnects);
   }
   @Test public void renewedDownloadDuringBackoffCancelsASoftRecovery(){
-    millis(15_000);transfer.onBytesTransferred(null,null,true,64*1024);millis(250);assertEquals(0,reconnects);
+    millis(9_000);transfer.onBytesTransferred(null,null,true,64*1024);millis(250);assertEquals(0,reconnects);
   }
   @Test public void renewedFramesDuringBackoffCancelAVideoStall(){
     ready();recovery.videoExpected(true);
@@ -131,7 +134,7 @@ public class LivePlaybackRecoveryTest {
     recovery.videoFrame();millis(250);assertEquals(0,reconnects);
   }
   @Test public void fatalDecoderErrorCannotBeCanceledByDownloadProgress(){
-    millis(15_000);recovery.onPlayerError(new PlaybackException("Decoder failed",null,PlaybackException.ERROR_CODE_DECODING_FAILED));
+    millis(9_000);recovery.onPlayerError(new PlaybackException("Decoder failed",null,PlaybackException.ERROR_CODE_DECODING_FAILED));
     transfer.onBytesTransferred(null,null,true,64*1024);ready();millis(250);assertEquals(1,reconnects);assertEquals("player_error_"+PlaybackException.ERROR_CODE_DECODING_FAILED,reason);
   }
   @Test public void duplicateBufferingCallbacksDoNotExtendTheDeadline(){
