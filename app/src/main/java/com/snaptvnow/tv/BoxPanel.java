@@ -36,8 +36,16 @@ final class BoxPanel {
   }
   static String packageName(String id){return "com.snaptvnow.box.a"+id.replace("-","");}
   static void validateBrand(JSONObject app) throws Exception {
-    if(!java.util.Arrays.asList("classic","cinema","compact").contains(app.getString("design"))||!app.getString("accent").matches("#[a-fA-F0-9]{6}")||!app.getString("background").matches("#[a-fA-F0-9]{6}")||app.getString("name").trim().length()<2||app.getString("name").length()>40)throw new IOException("Diseño de app inválido");
+    if(!java.util.Arrays.asList("classic","cinema","compact","aura","panorama","stadium","noir","horizon").contains(app.getString("design"))||!app.getString("accent").matches("#[a-fA-F0-9]{6}")||!app.getString("background").matches("#[a-fA-F0-9]{6}")||app.getString("name").trim().length()<2||app.getString("name").length()>40)throw new IOException("Diseño de app inválido");
+    validateStyle(app);
   }
+  static void validateStyle(JSONObject app) throws Exception {
+    if(!app.has("style"))return;
+    JSONObject value=app.getJSONObject("style");
+    if(!java.util.Arrays.asList("aurora","midnight","sunset","ocean").contains(value.getString("wallpaper"))||!java.util.Arrays.asList("comfortable","compact").contains(value.getString("density"))||value.getString("welcome").length()>80||value.getString("welcome").matches("(?s).*[\\x00-\\x1f].*"))throw new IOException("Estilo de app inválido");
+  }
+  static JSONObject style(){JSONObject value=brand().optJSONObject("style");return value==null?new JSONObject():value;}
+  static boolean sidebar(){return java.util.Arrays.asList("cinema","compact").contains(design());}
   static String base(){if(identity==null)throw new IllegalStateException("App sin identidad válida");return ORIGIN+"/api/boxpanel/client/"+identity.optString("appId");}
   static synchronized JSONObject refresh() throws Exception {
     if(!enabled)return null;
