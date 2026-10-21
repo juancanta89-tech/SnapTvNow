@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
       });
     }
     setContentView(root);if(!logged){login();return;}initialFocus=null;
-    if(wide&&BoxPanel.enabled&&!BoxPanel.design().equals("compact")){
+    if(wide&&BoxPanel.enabled&&!BoxPanel.sidebar()){
       LinearLayout header=new LinearLayout(this);header.setPadding(d(18),d(10),d(18),d(8));header.setGravity(Gravity.CENTER_VERTICAL);brand(header,23);root.addView(header,new LinearLayout.LayoutParams(-1,d(64)));
       HorizontalScrollView menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);LinearLayout links=new LinearLayout(this);navigation(links,true);menu.addView(links);header.addView(menu,new LinearLayout.LayoutParams(0,-1,1));
       LinearLayout main=col();main.setPadding(d(24),d(10),d(24),d(8));root.addView(main,new LinearLayout.LayoutParams(-1,0,1));content(main);
@@ -283,7 +283,7 @@ public class MainActivity extends Activity {
   }
   private void login(){
     LinearLayout panel=col();panel.setPadding(d(24),d(28),d(24),d(24));root.addView(panel);
-    FrameLayout splash=new FrameLayout(this);splash.setBackgroundResource(R.drawable.entertainment_hero);panel.addView(splash,new LinearLayout.LayoutParams(-1,d(wide?160:230)));
+    FrameLayout splash=new FrameLayout(this);if(BoxPanel.enabled)splash.addView(new BoxPanelHomeView.Scene(this,BoxPanel.design(),BoxPanel.style().optString("wallpaper","aurora")),new FrameLayout.LayoutParams(-1,-1));else splash.setBackgroundResource(R.drawable.entertainment_hero);panel.addView(splash,new LinearLayout.LayoutParams(-1,d(wide?160:230)));
     LinearLayout heading=col();heading.setPadding(d(15),d(15),d(15),d(12));heading.setBackground(gradient(0xdd071729,0x55071729,12));splash.addView(heading,new FrameLayout.LayoutParams(-1,-1));
     brand(heading,wide?31:30);gap(heading,30);heading.addView(text("Acceso de clientes",24,WHITE,true));
     gap(panel,22);
@@ -481,11 +481,8 @@ public class MainActivity extends Activity {
     overlay.addView(button,new LinearLayout.LayoutParams(buttonWidth,d(38)));
   }
   private void home(){
-    if(BoxPanel.enabled&&!BoxPanel.design().equals("cinema")){
-      title(BoxPanel.design().equals("classic")?"¿Qué quieres ver?":"Explora tu contenido");
-      cards(new String[]{"TV en vivo","Películas","Series"},new String[]{"▣","▶","▤"},new int[]{CYAN,0xff315973,0xff57416e});gap(body,18);
-      hero("Bienvenido a "+BoxPanel.name(),"Tu servicio y tus favoritos",this::refreshContent);gap(body,18);continueWatching(true);
-      if(!items.isEmpty()){title("De tu última categoría");if(BoxPanel.design().equals("compact"))catalogGrid(items.subList(0,Math.min(12,items.size())));else catalogRow(items.subList(0,Math.min(12,items.size())));}return;
+    if(BoxPanel.enabled){
+      body.addView(new BoxPanelHomeView(this,wide,items,target->{section=target;render();},this::openItem),new LinearLayout.LayoutParams(-1,-2));gap(body,18);continueWatching(true);return;
     }
     hero("Todo tu entretenimiento","TV en vivo, películas y series en un solo lugar",this::refreshContent);gap(body,18);
     title("Elige qué ver");if(BoxPanel.enabled)cards(new String[]{"TV en vivo","Películas","Series"},new String[]{"▣","▶","▤"},new int[]{CYAN,0xff315973,0xff57416e});else body.addView(new HomeCategoryGrid(this,wide,this::categoryTile),new LinearLayout.LayoutParams(-1,-2));

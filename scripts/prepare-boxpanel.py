@@ -13,13 +13,16 @@ def prepare(source, root):
     code = value.get('versionCode')
     if type(code) is not int or not 1 <= code <= 2100000000 or value.get('versionName') != f'1.0.{code}':
         raise ValueError('Invalid version')
-    if value.get('design') not in ('classic', 'cinema', 'compact'):
+    if value.get('design') not in ('classic', 'cinema', 'compact', 'aura', 'panorama', 'stadium', 'noir', 'horizon'):
         raise ValueError('Invalid design')
     if not 2 <= len(value.get('name', '').strip()) <= 40 or any(ord(c) < 32 for c in value['name']):
         raise ValueError('Invalid label')
     for key in ('accent', 'background'):
         if not re.fullmatch(r'#[a-fA-F0-9]{6}', value.get(key, '')):
             raise ValueError('Invalid colors')
+    style = value.get('style')
+    if style is not None and (not isinstance(style, dict) or style.get('wallpaper') not in ('aurora','midnight','sunset','ocean') or style.get('density') not in ('comfortable','compact') or not isinstance(style.get('welcome'), str) or len(style['welcome']) > 80 or any(ord(c) < 32 for c in style['welcome'])):
+        raise ValueError('Invalid app style')
     folder = pathlib.Path(root) / 'app/build/generated/boxpanel'
     if folder.exists(): shutil.rmtree(folder)
     (folder / 'assets').mkdir(parents=True)

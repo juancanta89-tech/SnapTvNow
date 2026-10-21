@@ -66,3 +66,16 @@ in-place signed update on connected physical devices before mass distribution.
 No paid service or subscription is added. Standard GitHub-hosted runners are
 used in this public repository; releases avoid paid artifact storage for APK
 delivery. Existing Cloudflare usage can still be billed under its current plan.
+
+## Eight-design catalog v2
+All original IDs remain supported. Órbita TV (`classic`), Prisma Cine (`cinema`),
+Mosaico TV (`compact`), Aura (`aura`), Panorama (`panorama`), Arena (`stadium`),
+Noir (`noir`) and Horizonte (`horizon`) use distinct native home compositions.
+The regular SNAPTVNOW build remains unchanged. Prism/Mosaic use a TV side rail;
+other layouts use top navigation on TV and the existing mobile navigation.
+Home posters use this reseller's actual catalog, with original vector scenery
+as a loading/empty backdrop. No preview titles are inserted into real catalogs.
+The optional approved `style` controls backdrop mood, spacing, and welcome text;
+legacy configs without it keep defaults. Native parsing and APK preparation
+validate the same style fields accepted by the server. Changes require a newly
+approved/published version through the existing protected signing workflow.
