@@ -18,6 +18,11 @@ final class Advertisement {
     Slide(String id,int seconds){this.id=id;this.seconds=seconds;}
   }
   static List<Slide> playlist() throws Exception {
+    if(BoxPanel.enabled){
+      JSONArray array=BoxPanel.refresh().getJSONArray("slides");List<Slide> slides=new ArrayList<>();
+      for(int i=0;i<array.length();i++){JSONObject item=array.getJSONObject(i);String id=item.getString("id");int seconds=item.getInt("seconds");if(id.matches("[a-f0-9-]{36}")&&seconds>=3&&seconds<=120)slides.add(new Slide(id,seconds));}
+      return slides;
+    }
     byte[] bytes=download(BASE+"/api/ads",20_000);
     JSONArray array=new JSONObject(new String(bytes,"UTF-8")).getJSONArray("slides");
     List<Slide> slides=new ArrayList<>();
@@ -29,7 +34,7 @@ final class Advertisement {
     return slides;
   }
   static Bitmap image(Slide slide) throws Exception {
-    byte[] bytes=download(BASE+"/api/ad-image?id="+slide.id,4_000_000);
+    byte[] bytes=BoxPanel.enabled?BoxPanel.download(BoxPanel.asset("ads/"+slide.id),262144):download(BASE+"/api/ad-image?id="+slide.id,4_000_000);
     BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;
     BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);options.inJustDecodeBounds=false;
     options.inSampleSize=Math.max(1,Math.max(options.outWidth/1200,options.outHeight/900));

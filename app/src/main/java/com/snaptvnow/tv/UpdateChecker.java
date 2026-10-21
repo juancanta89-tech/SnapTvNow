@@ -39,7 +39,7 @@ final class UpdateChecker {
     return code<=installed?null:new Update((int)code,name,url,notes,hash.toLowerCase(java.util.Locale.ROOT),size);
   }
   static Update fetch(Task task,long installed) throws Exception {
-    HttpURLConnection connection=(HttpURLConnection)new URL(ENDPOINT).openConnection();task.connection=connection;
+    HttpURLConnection connection=(HttpURLConnection)new URL(BoxPanel.enabled?BoxPanel.base()+"/update":ENDPOINT).openConnection();task.connection=connection;
     try {
       if(task.cancelled)throw new IOException("Comprobación cancelada.");
       connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(10000);connection.setReadTimeout(10000);connection.setRequestProperty("Accept","application/json");connection.setRequestProperty("Cache-Control","no-cache");
@@ -68,7 +68,7 @@ final class UpdateChecker {
         if(update==null||System.currentTimeMillis()-preferences.getLong("dismissed_"+update.code,0)<24L*60*60*1000)return;
         activity.runOnUiThread(()->{
           if(activity.isFinishing()||activity.isDestroyed()||!activity.hasWindowFocus())return;
-          new AlertDialog.Builder(activity).setTitle("Actualización disponible · "+update.name).setMessage(update.notes+"\n\nSNAPTVNOW descargará la actualización. Al terminar, confirma la instalación en tu dispositivo.")
+          new AlertDialog.Builder(activity).setTitle("Actualización disponible · "+update.name).setMessage(update.notes+"\n\n"+BoxPanel.name()+" descargará la actualización. Al terminar, confirma la instalación en tu dispositivo.")
             .setNegativeButton("Más tarde",(dialog,which)->preferences.edit().putLong("dismissed_"+update.code,System.currentTimeMillis()).apply())
             .setPositiveButton("Descargar e instalar",(dialog,which)->update.open(activity)).show();
         });

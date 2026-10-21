@@ -1,0 +1,99 @@
+name: Build approved BoxPanel apps
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '11,41 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: boxpanel-production-builds
+  cancel-in-progress: false
+jobs:
+  pending:
+    if: github.repository == 'juancanta89-tech/SnapTvNow' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      pending: ${{ steps.queue.outputs.pending }}
+    steps:
+      - name: Check whether approved work is waiting
+        id: queue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const r=await fetch('https://api.snaptvnow.com/api/boxpanel/builds/pending',{signal:AbortSignal.timeout(15000)});
+          if(!r.ok)throw Error('BoxPanel queue unavailable');
+          const value=await r.json();
+          const checks=await fetch('https://api.github.com/repos/juancanta89-tech/SnapTvNow/actions/runs?head_sha='+process.env.GITHUB_SHA+'&per_page=30',{headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)});
+          if(!checks.ok)throw Error('Source checks unavailable');
+          const runs=(await checks.json()).workflow_runs;
+          const quality=runs.filter(x=>x.name==='Android source check'&&x.event==='push').sort((a,b)=>b.id-a.id)[0];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'pending='+(value.pending===true&&quality?.conclusion==='success'?'true':'false')+'\n');
+          JS
+  build:
+    needs: pending
+    if: needs.pending.outputs.pending == 'true'
+    runs-on: macos-15-intel
+    timeout-minutes: 70
+    environment: production
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: mysteriumnetwork/openvpn_dart
+          ref: e0b86e5c4f0c05a9fc3aa1ca9311275663657b68
+          path: vendor/openvpn-engine
+      - name: Verify OpenVPN engine
+        run: echo '3540c8579b0056baac517cb6c930d9d9fb19cbbdf6216e4353fce5513aee50f6  vendor/openvpn-engine/android/localmaven/network/mysterium/openvpn/icsopenvpn/0.7.55-myst/icsopenvpn-0.7.55-myst.aar' | shasum -a 256 -c -
+      - uses: actions/checkout@v4
+        with:
+          repository: androidx/media
+          ref: 8c6678b657ede1e7883fc164ef73ed483c7796c3
+          path: vendor/media
+          sparse-checkout: libraries/decoder_ffmpeg
+      - uses: actions/checkout@v4
+        with:
+          repository: FFmpeg/FFmpeg
+          ref: 34277e12e80031c7f89494ba543684bc1dd0be8f
+          path: vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - run: sdkmanager --install 'platforms;android-36' 'build-tools;35.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/android-libs
+            vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/libavutil/avconfig.h
+            vendor/media/libraries/decoder_ffmpeg/src/main/jni/ffmpeg/libavutil/ffversion.h
+          key: snaptv-audio-1.11.1-6.1.4-ndk26b-v1-${{ runner.os }}
+      - run: bash scripts/build-native-audio.sh
+      - run: python3 -m pip install Pillow==12.3.0
+      - name: Decode existing private signing key
+        env:
+          SIGNING_KEY_B64: ${{ secrets.SNAPTVNOW_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$SIGNING_KEY_B64"
+          printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/boxpanel-production.jks"
+          chmod 600 "$RUNNER_TEMP/boxpanel-production.jks"
+      - name: Build, verify and publish approved apps
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPTVNOW_KEYSTORE_FILE: ${{ runner.temp }}/boxpanel-production.jks
+          SNAPTVNOW_STORE_PASSWORD: ${{ secrets.SNAPTVNOW_STORE_PASSWORD }}
+          SNAPTVNOW_KEY_ALIAS: ${{ secrets.SNAPTVNOW_KEY_ALIAS }}
+          SNAPTVNOW_KEY_PASSWORD: ${{ secrets.SNAPTVNOW_KEY_PASSWORD }}
+        run: node scripts/build-boxpanel.mjs
+      - name: Remove private key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/boxpanel-production.jks"

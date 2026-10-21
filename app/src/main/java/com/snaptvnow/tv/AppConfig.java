@@ -18,6 +18,7 @@ final class AppConfig {
   private static final String PREF="app_config", SERVER="last_server", SERVERS="servers", WORKING="working_server";
 
   static List<String> load(Context context) throws Exception {
+    if(BoxPanel.enabled)return parseServers(BoxPanel.refresh().getJSONArray("servers"));
     SharedPreferences prefs=context.getSharedPreferences(PREF,Context.MODE_PRIVATE);
     try {
       HttpURLConnection connection=(HttpURLConnection)new URL(CONFIG_URL).openConnection();
