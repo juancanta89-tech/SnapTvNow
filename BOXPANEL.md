@@ -79,3 +79,13 @@ The optional approved `style` controls backdrop mood, spacing, and welcome text;
 legacy configs without it keep defaults. Native parsing and APK preparation
 validate the same style fields accepted by the server. Changes require a newly
 approved/published version through the existing protected signing workflow.
+
+## Approved image placement
+The approved `artwork` map supports background, hero, login, tv, movies, series,
+and poster1..poster5 with cover/contain fit. APK assets embed bounded snapshots;
+remote config contains only app-scoped versioned URLs validated against the
+installed app identity. Background/login/hero/portal images replace base scenery.
+Brand cards are separate from actual catalog posters: uploaded marketing art
+never impersonates a film's metadata. Missing assignments restore base art;
+legacy apps without artwork retain their layouts. The existing protected build
+approval/signature and workspace suspension apply to these assets too.

@@ -20,6 +20,12 @@ public class BoxPanelTest {
     assertThrows(Exception.class,()->BoxPanel.parseIdentity(first,second.getString("packageName")));
     assertThrows(Exception.class,()->BoxPanel.validateConfig(config(second),first));
   }
+  @Test public void artworkHasScopedUrlsAndValidZones() throws Exception {
+    JSONObject app=identity("11111111-1111-4111-8111-111111111111","cinema"),value=config(app),brand=value.getJSONObject("app");
+    JSONObject hero=new JSONObject().put("fit","contain").put("url",BoxPanel.ORIGIN+"/api/boxpanel/client/"+app.getString("appId")+"/artwork/hero?v=1");brand.put("artwork",new JSONObject().put("hero",hero));BoxPanel.validateConfig(value,app);
+    hero.put("url",BoxPanel.ORIGIN+"/api/boxpanel/client/22222222-2222-4222-8222-222222222222/artwork/hero?v=1");assertThrows(Exception.class,()->BoxPanel.validateConfig(value,app));
+    hero.put("fit","untrusted");assertThrows(Exception.class,()->BoxPanel.validateArtwork(brand));
+  }
   @Test public void disabledMissingDnsAndInvalidBrandNeverFallBackToSnap() throws Exception {
     JSONObject app=identity("11111111-1111-4111-8111-111111111111","classic");
     assertThrows(Exception.class,()->BoxPanel.validateConfig(config(app).put("active",false),app));

@@ -232,7 +232,7 @@ public class MainActivity extends Activity {
         view.setPadding(safe.left,safe.top,safe.right,safe.bottom);return insets;
       });
     }
-    setContentView(root);if(!logged){login();return;}initialFocus=null;
+    if(BoxPanel.enabled){ImageView backdrop=new ImageView(this);if(BoxPanel.applyArtwork(backdrop,"background")){FrameLayout canvas=new FrameLayout(this);canvas.setBackgroundColor(NAVY);canvas.addView(backdrop,new FrameLayout.LayoutParams(-1,-1));View veil=new View(this);veil.setBackgroundColor(0xc407101b);canvas.addView(veil,new FrameLayout.LayoutParams(-1,-1));root.setBackgroundColor(Color.TRANSPARENT);canvas.addView(root,new FrameLayout.LayoutParams(-1,-1));setContentView(canvas);}else setContentView(root);}else setContentView(root);if(!logged){login();return;}initialFocus=null;
     if(wide&&BoxPanel.enabled&&!BoxPanel.sidebar()){
       LinearLayout header=new LinearLayout(this);header.setPadding(d(18),d(10),d(18),d(8));header.setGravity(Gravity.CENTER_VERTICAL);brand(header,23);root.addView(header,new LinearLayout.LayoutParams(-1,d(64)));
       HorizontalScrollView menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);LinearLayout links=new LinearLayout(this);navigation(links,true);menu.addView(links);header.addView(menu,new LinearLayout.LayoutParams(0,-1,1));
@@ -283,7 +283,7 @@ public class MainActivity extends Activity {
   }
   private void login(){
     LinearLayout panel=col();panel.setPadding(d(24),d(28),d(24),d(24));root.addView(panel);
-    FrameLayout splash=new FrameLayout(this);if(BoxPanel.enabled)splash.addView(new BoxPanelHomeView.Scene(this,BoxPanel.design(),BoxPanel.style().optString("wallpaper","aurora")),new FrameLayout.LayoutParams(-1,-1));else splash.setBackgroundResource(R.drawable.entertainment_hero);panel.addView(splash,new LinearLayout.LayoutParams(-1,d(wide?160:230)));
+    FrameLayout splash=new FrameLayout(this);if(BoxPanel.enabled)splash.addView(new BoxPanelHomeView.Scene(this,BoxPanel.design(),BoxPanel.style().optString("wallpaper","aurora")),new FrameLayout.LayoutParams(-1,-1));else splash.setBackgroundResource(R.drawable.entertainment_hero);panel.addView(splash,new LinearLayout.LayoutParams(-1,d(wide?160:230)));if(BoxPanel.enabled){ImageView cover=new ImageView(this);if(BoxPanel.applyArtwork(cover,"login")||BoxPanel.applyArtwork(cover,"background"))splash.addView(cover,new FrameLayout.LayoutParams(-1,-1));}
     LinearLayout heading=col();heading.setPadding(d(15),d(15),d(15),d(12));heading.setBackground(gradient(0xdd071729,0x55071729,12));splash.addView(heading,new FrameLayout.LayoutParams(-1,-1));
     brand(heading,wide?31:30);gap(heading,30);heading.addView(text("Acceso de clientes",24,WHITE,true));
     gap(panel,22);
