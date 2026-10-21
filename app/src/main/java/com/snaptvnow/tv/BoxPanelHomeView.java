@@ -28,6 +28,7 @@ final class BoxPanelHomeView extends LinearLayout {
  private final Consumer<String> navigate;
  private final Consumer<Catalog.Item> open;
  private final List<Catalog.Item> items;
+ final ImageView advertisement;
  BoxPanelHomeView(Context context,boolean television,List<Catalog.Item> catalog,Consumer<String> go,Consumer<Catalog.Item> play){
   super(context);wide=television;items=catalog;navigate=go;open=play;design=BoxPanel.design();accent=BoxPanel.accent();background=BoxPanel.background();compact=BoxPanel.style().optString("density").equals("compact");
   setOrientation(VERTICAL);setContentDescription("Diseño "+design);setTag("boxpanel-home-"+design);
@@ -43,6 +44,9 @@ final class BoxPanelHomeView extends LinearLayout {
     else{addView(hero(280,"DESCUBRE OTRA MIRADA","Siempre hay algo más",true));space(12);categoryStrip(false);}break;
    default:addView(hero(wide?235:260,"TU PRÓXIMA HISTORIA","Más allá de lo cotidiano",false));space(12);portals(false);
   }
+  advertisement=new ImageView(context);advertisement.setScaleType(ImageView.ScaleType.FIT_CENTER);advertisement.setContentDescription("Imágenes de tu servicio");
+  org.json.JSONObject config=BoxPanel.configuration();org.json.JSONArray slides=config==null?null:config.optJSONArray("slides");
+  if(slides!=null&&slides.length()>0){space(16);addView(label("Novedades de tu servicio",16,true));space(8);addView(advertisement,new LayoutParams(-1,dp(wide?160:180)));}
   if(!items.isEmpty()){space(18);TextView label=label(design.equals("stadium")?"Explora tu programación":"De tu catálogo",wide?18:17,true);addView(label);space(10);posters();}
  }
  private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}

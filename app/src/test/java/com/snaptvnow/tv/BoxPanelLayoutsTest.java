@@ -34,12 +34,12 @@ public class BoxPanelLayoutsTest {
     String id=design.equals("cinema")?"22222222-2222-4222-8222-222222222222":"11111111-1111-4111-8111-111111111111";
     JSONObject identity=new JSONObject().put("appId",id).put("name","Marca "+design).put("design",design).put("accent","#16d4cd").put("background","#07151f").put("logo","");
     identity.put("style",new JSONObject().put("wallpaper","sunset").put("density","compact").put("welcome","Bienvenido a tu mundo"));
-    JSONObject config=new JSONObject().put("app",identity).put("servers",new JSONArray().put("https://provider.example.com")).put("slides",new JSONArray());
+    JSONObject config=new JSONObject().put("app",identity).put("servers",new JSONArray().put("https://provider.example.com")).put("slides",new JSONArray().put(new JSONObject().put("id","33333333-3333-4333-8333-333333333333").put("seconds",10)));
     BoxPanel.enabled=true;set(null,BoxPanel.class,"identity",identity);set(null,BoxPanel.class,"config",config);ShadowSystemClock.advanceBy(Duration.ofSeconds(1));set(null,BoxPanel.class,"verifiedAt",SystemClock.elapsedRealtime());
     set(activity,MainActivity.class,"prefs",activity.getSharedPreferences("test",0));set(activity,MainActivity.class,"playbackHistory",new PlaybackHistory(activity));set(activity,MainActivity.class,"items",new ArrayList<Catalog.Item>());set(activity,MainActivity.class,"logged",true);
     render(activity);LinearLayout root=(LinearLayout)field(activity,"root");String visible=text(root);assertTrue(visible.contains("Marca "+design));if(!design.equals("compact"))assertTrue(visible.contains("Bienvenido a tu mundo"));assertTrue(visible.contains("TV EN VIVO"));assertTrue(visible.contains("PELÍCULAS"));assertTrue(visible.contains("SERIES"));assertFalse(visible.contains(ExclusiveCatalog.SECTION));
     LinearLayout first=(LinearLayout)root.getChildAt(0);assertEquals(LinearLayout.HORIZONTAL,first.getOrientation());
-    assertEquals(design.equals("compact")||design.equals("cinema"),first.getChildAt(0) instanceof LinearLayout);assertNotNull(root.findViewWithTag("boxpanel-home-"+design));
+    assertEquals(design.equals("compact")||design.equals("cinema"),first.getChildAt(0) instanceof LinearLayout);assertNotNull(root.findViewWithTag("boxpanel-home-"+design));assertNotNull(field(activity,"adView"));assertTrue(visible.contains("Imágenes de tu servicio")||visible.contains("Novedades de tu servicio"));assertTrue(visible.contains("Actualizar contenido"));
     ExoPlayer video=mock(ExoPlayer.class);set(activity,MainActivity.class,"video",video);set(null,BoxPanel.class,"verifiedAt",0L);render(activity);verify(video).release();assertNull(field(activity,"client"));assertFalse((Boolean)field(activity,"logged"));
    }finally{BoxPanel.enabled=false;set(null,BoxPanel.class,"identity",null);set(null,BoxPanel.class,"config",null);set(null,BoxPanel.class,"verifiedAt",0L);((ExecutorService)field(activity,"searchExecutor")).shutdownNow();}
   }

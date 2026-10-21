@@ -482,7 +482,7 @@ public class MainActivity extends Activity {
   }
   private void home(){
     if(BoxPanel.enabled){
-      body.addView(new BoxPanelHomeView(this,wide,items,target->{section=target;render();},this::openItem),new LinearLayout.LayoutParams(-1,-2));gap(body,18);continueWatching(true);return;
+      BoxPanelHomeView home=new BoxPanelHomeView(this,wide,items,target->{section=target;render();},this::openItem);body.addView(home,new LinearLayout.LayoutParams(-1,-2));adView=home.advertisement;displayAdvertisement(adBitmap);gap(body,12);body.addView(action(refreshing?"Actualizando…":"↻ Actualizar contenido",this::refreshContent),new LinearLayout.LayoutParams(-1,d(48)));gap(body,18);continueWatching(true);return;
     }
     hero("Todo tu entretenimiento","TV en vivo, películas y series en un solo lugar",this::refreshContent);gap(body,18);
     title("Elige qué ver");if(BoxPanel.enabled)cards(new String[]{"TV en vivo","Películas","Series"},new String[]{"▣","▶","▤"},new int[]{CYAN,0xff315973,0xff57416e});else body.addView(new HomeCategoryGrid(this,wide,this::categoryTile),new LinearLayout.LayoutParams(-1,-2));
