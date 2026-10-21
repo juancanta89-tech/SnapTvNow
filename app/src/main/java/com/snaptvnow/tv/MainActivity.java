@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
   private static final String[] ICONS={"⌂","▣","★","▶","▤","✦","↻","♡"};
   private List<Catalog.Item> items=Catalog.demo();
   private XtreamClient client;
+  private boolean savedSessionAvailable;
   private String loadedSection="";
   private List<Catalog.Item> exclusiveItems=new ArrayList<>();
   private boolean exclusiveLoaded,exclusiveLoading,exclusiveSeries;
@@ -182,21 +183,23 @@ public class MainActivity extends Activity {
     TextView loading=text(BoxPanel.name()+"\nConectando…",23,CYAN,true);
     loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(NAVY);setContentView(loading);
     new Thread(()->{
-      List<String> servers=null;String error=null;XtreamClient restored=null;
+      List<String> servers=null;String error=null,recoveryMessage=null;XtreamClient restored=null;
+      final XtreamClient saved=SessionStore.restore(this);
       try{
         servers=AppConfig.load(this);
         XtreamClient.SERVER=AppConfig.lastWorking(this,servers);
-        restored=SessionStore.restore(this);
-        if(restored!=null){
-          try{restored=restored.reconnect(servers);AppConfig.rememberWorking(this,restored.server());}
-          catch(Exception unavailable){if(BoxPanel.enabled)restored=null;XtreamClient.SERVER=AppConfig.lastWorking(this,servers);}
-        }else XtreamClient.SERVER=servers.get(0);
+        SessionRecovery.Result recovery=SessionRecovery.reconnect(saved,servers,
+          (account,enabledServers)->account.reconnect(enabledServers),
+          verified->SessionStore.save(this,verified.username(),verified.password(),verified.expires,verified.maxConnections));
+        restored=recovery.client;recoveryMessage=recovery.message;
+        if(restored!=null)AppConfig.rememberWorking(this,restored.server());
+        else XtreamClient.SERVER=servers.get(0);
       }catch(Exception e){error=e.getMessage();}
-      final XtreamClient resolved=restored;final String problem=error;
+      final XtreamClient resolved=restored;final String problem=error,connectionNotice=recoveryMessage;
       runOnUiThread(()->{
         if(isFinishing()||isDestroyed())return;
         if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();if(problem!=null||!BoxPanel.authorized()){showBoxBlocked();return;}}
-        client=resolved;logged=client!=null;if(client!=null)XtreamClient.SERVER=client.server();bindProfile();
+        savedSessionAvailable=saved!=null;client=resolved;logged=client!=null;if(client!=null)XtreamClient.SERVER=client.server();bindProfile();
         if(logged)items=new ArrayList<>();
         for(Catalog.Item i:items)seen.put(i.id,i);
         render();
@@ -209,6 +212,9 @@ public class MainActivity extends Activity {
         UpdateChecker.check(this);
         if(client!=null)checkDirectMessage();
         loadAdvertisement();
+        if(connectionNotice!=null)new AlertDialog.Builder(this).setTitle(client==null?"Reconectar cuenta guardada":"Aviso de acceso")
+          .setMessage(connectionNotice).setPositiveButton("Reintentar",(dialog,which)->recreate())
+          .setNegativeButton("Cerrar",null).show();
         if(problem!=null)new AlertDialog.Builder(this).setTitle("Sin configuración")
           .setMessage(problem).setPositiveButton("Reintentar",(dialog,which)->recreate())
           .setNegativeButton("Demostración",null).show();
@@ -282,10 +288,12 @@ public class MainActivity extends Activity {
       default:continueSectionPreview();if(client!=null&&!section.equals(loadedSection))categoryPicker();else catalog();}
   }
   private void login(){
-    LinearLayout panel=col();panel.setPadding(d(24),d(28),d(24),d(24));root.addView(panel);
+    ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);root.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
+    LinearLayout panel=col();panel.setPadding(d(24),d(28),d(24),d(24));scroll.addView(panel);
     FrameLayout splash=new FrameLayout(this);if(BoxPanel.enabled)splash.addView(new BoxPanelHomeView.Scene(this,BoxPanel.design(),BoxPanel.style().optString("wallpaper","aurora")),new FrameLayout.LayoutParams(-1,-1));else splash.setBackgroundResource(R.drawable.entertainment_hero);panel.addView(splash,new LinearLayout.LayoutParams(-1,d(wide?160:230)));if(BoxPanel.enabled){ImageView cover=new ImageView(this);if(BoxPanel.applyArtwork(cover,"login")||BoxPanel.applyArtwork(cover,"background"))splash.addView(cover,new FrameLayout.LayoutParams(-1,-1));}
     LinearLayout heading=col();heading.setPadding(d(15),d(15),d(15),d(12));heading.setBackground(gradient(0xdd071729,0x55071729,12));splash.addView(heading,new FrameLayout.LayoutParams(-1,-1));
     brand(heading,wide?31:30);gap(heading,30);heading.addView(text("Acceso de clientes",24,WHITE,true));
+    if(savedSessionAvailable){gap(panel,14);panel.addView(action("Reconectar cuenta guardada",this::recreate),new LinearLayout.LayoutParams(wide?d(350):-1,d(54)));}
     gap(panel,22);
     EditText user=new EditText(this);user.setSingleLine(true);user.setHint("Usuario de la línea");user.setTextColor(WHITE);user.setHintTextColor(MUTED);user.setBackground(shape(PANEL,12));user.setPadding(d(16),0,d(16),0);panel.addView(user,new LinearLayout.LayoutParams(wide?d(350):-1,d(55)));
     gap(panel,10);EditText pass=new EditText(this);pass.setSingleLine(true);pass.setInputType(129);pass.setHint("Contraseña de la línea");pass.setTextColor(WHITE);pass.setHintTextColor(MUTED);pass.setBackground(shape(PANEL,12));pass.setPadding(d(16),0,d(16),0);panel.addView(pass,new LinearLayout.LayoutParams(wide?d(350):-1,d(55)));
@@ -366,7 +374,7 @@ public class MainActivity extends Activity {
       }));
       runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;try{
         SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();
-        client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();
+        savedSessionAvailable=true;client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();
       }catch(Exception e){new AlertDialog.Builder(this).setTitle("No se pudo guardar la sesión").setMessage("Vuelve a iniciar sesión.").setPositiveButton("Aceptar",null).show();}});
     }catch(Exception e){runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;if(loginStatus!=null)loginStatus.setVisibility(View.GONE);new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
   }
@@ -784,7 +792,7 @@ public class MainActivity extends Activity {
       account.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(account,10);
       account.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);}
     }
-    account.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));
+    account.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);savedSessionAvailable=false;favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));
     LinearLayout.LayoutParams updateParams=columns?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2);
     if(columns)updateParams.leftMargin=d(24);else updateParams.topMargin=d(28);
     content.addView(new AccountUpdatesView(this),updateParams);
