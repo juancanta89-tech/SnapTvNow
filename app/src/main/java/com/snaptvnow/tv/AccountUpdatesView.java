@@ -21,7 +21,7 @@ final class AccountUpdatesView extends LinearLayout {
     super(activity);this.activity=activity;setOrientation(VERTICAL);setPadding(dp(12),0,dp(12),dp(12));
     addView(label("Versión instalada",18,WHITE,true));
     TextView version=label(UpdateChecker.installedName(activity),34,WHITE,true);version.setPadding(0,dp(6),0,dp(8));addView(version);
-    addView(label("SNAPTVNOW",14,MUTED,false));
+    addView(label(BoxPanel.name(),14,MUTED,false));
     check=button("Buscar actualizaciones",this::checkNow);LayoutParams checkParams=new LayoutParams(-1,-2);checkParams.topMargin=dp(18);addView(check,checkParams);
     status=label("Comprueba si hay una nueva versión para tu dispositivo.",13,MUTED,false);status.setPadding(0,dp(12),0,dp(12));status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);addView(status);
     offer=new LinearLayout(activity);offer.setOrientation(VERTICAL);offer.setPadding(dp(16),dp(16),dp(16),dp(16));

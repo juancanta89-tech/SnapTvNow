@@ -24,6 +24,9 @@ This controls official apps, not an independently modified third-party player.
 The web owner approves a saved proposal. The Worker stores its immutable build
 snapshot and queues one build. A lightweight scheduled GitHub job checks every
 30 minutes and runs only after Android source checks pass on the exact main SHA.
+GitHub can delay scheduled runs and disables public-repository schedules after
+60 days without repository activity; an authorized owner can also use Run
+workflow on Build approved BoxPanel apps. No keep-alive commits are generated.
 Signing retains the existing protected `production` environment and owner
 approval; no secret or approval gate is removed. Its pending approval must be
 completed in GitHub by an authorized environment reviewer.
