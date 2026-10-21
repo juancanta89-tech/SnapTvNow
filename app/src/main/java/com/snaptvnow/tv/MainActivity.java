@@ -46,7 +46,11 @@ import java.util.Locale;
 import java.util.Set;
 
 public class MainActivity extends Activity {
-  private static final int NAVY=0xff071729, PANEL=0xff10283d, CYAN=0xff29dce8, WHITE=Color.WHITE, MUTED=0xffb5c9d3;
+  private int NAVY=0xff071729, CYAN=0xff29dce8;
+  private static final int PANEL=0xff10283d, WHITE=Color.WHITE, MUTED=0xffb5c9d3;
+  private int boxGeneration;
+  private Runnable boxTick;
+  private boolean boxBlocked;
   private static final String[] SECTIONS={"Inicio","TV en vivo","PPV HOY","Películas","Series",ExclusiveCatalog.SECTION,"Continuar viendo","Mi lista"};
   private static final String[] ICONS={"⌂","▣","★","▶","▤","✦","↻","♡"};
   private List<Catalog.Item> items=Catalog.demo();
@@ -173,9 +177,9 @@ public class MainActivity extends Activity {
   private TextView action(String label,Runnable task){TextView v=text(label,15,WHITE,true);v.setGravity(Gravity.CENTER);v.setPadding(d(12),d(7),d(12),d(7));v.setBackground(shape(PANEL,12));v.setFocusable(true);v.setOnClickListener(w->task.run());v.setOnFocusChangeListener((w,focus)->{v.setBackground(focus?gradient(CYAN,0xff10abce,12):shape(PANEL,12));v.setTextColor(focus?NAVY:WHITE);v.setScaleX(focus?1.025f:1f);v.setScaleY(focus?1.025f:1f);});return v;}
   private void title(String s){body.addView(text(s,wide?25:22,WHITE,true));gap(body,12);}
   @Override public void onCreate(Bundle b){
-    super.onCreate(b);CrashDiagnostics.install(this);prefs=getSharedPreferences("demo",MODE_PRIVATE);playbackHistory=new PlaybackHistory(this);accountFavorites=new AccountFavorites(this);VpnTunnel.initialize(this);
+    super.onCreate(b);BoxPanel.initialize(this);if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();}CrashDiagnostics.install(this);prefs=getSharedPreferences("demo",MODE_PRIVATE);playbackHistory=new PlaybackHistory(this);accountFavorites=new AccountFavorites(this);VpnTunnel.initialize(this);
     final String previousCrash=CrashDiagnostics.consume(this);
-    TextView loading=text("SNAPTVNOW\nConectando…",23,CYAN,true);
+    TextView loading=text(BoxPanel.name()+"\nConectando…",23,CYAN,true);
     loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(NAVY);setContentView(loading);
     new Thread(()->{
       List<String> servers=null;String error=null;XtreamClient restored=null;
@@ -185,11 +189,13 @@ public class MainActivity extends Activity {
         restored=SessionStore.restore(this);
         if(restored!=null){
           try{restored=restored.reconnect(servers);AppConfig.rememberWorking(this,restored.server());}
-          catch(Exception ignored){XtreamClient.SERVER=AppConfig.lastWorking(this,servers);}
+          catch(Exception unavailable){if(BoxPanel.enabled)restored=null;XtreamClient.SERVER=AppConfig.lastWorking(this,servers);}
         }else XtreamClient.SERVER=servers.get(0);
       }catch(Exception e){error=e.getMessage();}
       final XtreamClient resolved=restored;final String problem=error;
       runOnUiThread(()->{
+        if(isFinishing()||isDestroyed())return;
+        if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();if(problem!=null||!BoxPanel.authorized()){showBoxBlocked();return;}}
         client=resolved;logged=client!=null;if(client!=null)XtreamClient.SERVER=client.server();bindProfile();
         if(logged)items=new ArrayList<>();
         for(Catalog.Item i:items)seen.put(i.id,i);
@@ -210,6 +216,8 @@ public class MainActivity extends Activity {
     }).start();
   }
   private void render(){
+    if(BoxPanel.enabled&&!BoxPanel.authorized()){showBoxBlocked();return;}
+    boxBlocked=false;if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();}
     if(searchInput!=null){searchInput.leaveEditor();searchInput=null;}
     searchGeneration++;searchScreenGeneration++;
     if(searchDebounce!=null){controlHandler.removeCallbacks(searchDebounce);searchDebounce=null;}
@@ -225,7 +233,11 @@ public class MainActivity extends Activity {
       });
     }
     setContentView(root);if(!logged){login();return;}initialFocus=null;
-    if(wide){
+    if(wide&&BoxPanel.enabled&&!BoxPanel.design().equals("compact")){
+      LinearLayout header=new LinearLayout(this);header.setPadding(d(18),d(10),d(18),d(8));header.setGravity(Gravity.CENTER_VERTICAL);brand(header,23);root.addView(header,new LinearLayout.LayoutParams(-1,d(64)));
+      HorizontalScrollView menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);LinearLayout links=new LinearLayout(this);navigation(links,true);menu.addView(links);header.addView(menu,new LinearLayout.LayoutParams(0,-1,1));
+      LinearLayout main=col();main.setPadding(d(24),d(10),d(24),d(8));root.addView(main,new LinearLayout.LayoutParams(-1,0,1));content(main);
+    }else if(wide){
       LinearLayout shell=new LinearLayout(this);root.addView(shell,new LinearLayout.LayoutParams(-1,-1));
       LinearLayout rail=col();rail.setPadding(d(14),d(22),d(12),d(12));rail.setBackgroundColor(0xff091d32);
       shell.addView(rail,new LinearLayout.LayoutParams(d(192),-1));brand(rail,24);gap(rail,18);
@@ -253,8 +265,11 @@ public class MainActivity extends Activity {
     }
   }
   private void releaseVideo(){if(audioDiagnostics!=null){audioDiagnostics.close();audioDiagnostics=null;}if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){video.release();video=null;}}
-  private void brand(LinearLayout holder,int size){TextView t=text("SNAPTVNOW",size,CYAN,true);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t);}
-  private void navigation(LinearLayout holder,boolean horizontal){for(int i=0;i<SECTIONS.length;i++){String s=SECTIONS[i],label=ICONS[i]+"  "+s;TextView t=action(label,()->{section=s;render();});t.setTextSize(horizontal?13:14);t.setGravity(horizontal?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(s.equals(section)){t.setBackground(gradient(0xff106580,0xff0b354e,12));t.setTextColor(CYAN);}LinearLayout.LayoutParams lp=horizontal?new LinearLayout.LayoutParams(d(105),d(46)):new LinearLayout.LayoutParams(-1,d(49));lp.setMargins(0,0,horizontal?d(5):0,horizontal?0:d(4));holder.addView(t,lp);if(s.equals(section))initialFocus=t;}}
+  private void brand(LinearLayout holder,int size){
+    if(BoxPanel.enabled){ImageView logo=new ImageView(this);logo.setContentDescription("Logo de "+BoxPanel.name());logo.setScaleType(ImageView.ScaleType.FIT_CENTER);logo.setImageResource(R.drawable.snaptvnow_icon);android.graphics.Bitmap bitmap=BoxPanel.embeddedLogo();if(bitmap!=null)logo.setImageBitmap(bitmap);else if(!BoxPanel.brand().optString("logo","").isEmpty())Artwork.into(logo,BoxPanel.asset("logo"));holder.addView(logo,new LinearLayout.LayoutParams(d(42),d(42)));}
+    TextView t=text(BoxPanel.name(),size,CYAN,true);t.setMaxLines(2);t.setEllipsize(TextUtils.TruncateAt.END);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t,new LinearLayout.LayoutParams(BoxPanel.enabled?d(170):-2,-2));
+  }
+  private void navigation(LinearLayout holder,boolean horizontal){for(int i=0;i<SECTIONS.length;i++){String s=SECTIONS[i];if(BoxPanel.enabled&&s.equals(ExclusiveCatalog.SECTION))continue;String label=ICONS[i]+"  "+s;TextView t=action(label,()->{section=s;render();});t.setTextSize(horizontal?13:14);t.setGravity(horizontal?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(s.equals(section)){t.setBackground(gradient(0xff106580,0xff0b354e,12));t.setTextColor(CYAN);}LinearLayout.LayoutParams lp=horizontal?new LinearLayout.LayoutParams(d(105),d(46)):new LinearLayout.LayoutParams(-1,d(49));lp.setMargins(0,0,horizontal?d(5):0,horizontal?0:d(4));holder.addView(t,lp);if(s.equals(section))initialFocus=t;}}
   private void content(LinearLayout holder){
     if(wide){LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);holder.addView(top);
       TextView page=text(section,22,WHITE,true);top.addView(page,new LinearLayout.LayoutParams(0,d(40),1));
@@ -280,11 +295,12 @@ public class MainActivity extends Activity {
       enterLine(u,p);
     });enter.setBackground(gradient(CYAN,0xff0fb5cd,12));enter.setTextColor(NAVY);panel.addView(enter,new LinearLayout.LayoutParams(wide?d(350):-1,d(54)));
     loginStatus=text("",13,MUTED,false);loginStatus.setVisibility(View.GONE);panel.addView(loginStatus);
-    gap(panel,14);TextView vpn=action("VPN",this::openVpn);panel.addView(vpn,new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));
+    if(!BoxPanel.enabled){gap(panel,14);TextView vpn=action("VPN",this::openVpn);panel.addView(vpn,new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));}
     if(VpnTunnel.isConnected()){gap(panel,8);panel.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));}
     gap(panel,9);panel.addView(text("Tu sesión se guarda cifrada en este dispositivo hasta que cierres sesión.",13,MUTED,false));
   }
   private void openVpn(){
+    if(BoxPanel.enabled)return;
     String u=client!=null?client.username():loginUser!=null?loginUser.getText().toString().trim():"";
     String p=client!=null?client.password():loginPass!=null?loginPass.getText().toString():"";
     if(u.isEmpty()||p.isEmpty()){
@@ -355,6 +371,7 @@ public class MainActivity extends Activity {
     }catch(Exception e){runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;if(loginStatus!=null)loginStatus.setVisibility(View.GONE);new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
   }
   private void checkDirectMessage(){
+    if(BoxPanel.enabled)return;
     final XtreamClient session=client;if(session==null)return;
     new Thread(()->{try{
       org.json.JSONObject message=DirectMessages.request(session,"list",0).optJSONObject("message");
@@ -399,12 +416,14 @@ public class MainActivity extends Activity {
     controlHandler.postDelayed(adNext,adSlides.get(adIndex).seconds*1000L);
   }
   @Override protected void onPause(){
+    boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);boxTick=null;
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}
     if(vodSession!=null){vodSession.saveNow();if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}
     super.onPause();
   }
   @Override protected void onResume(){
     super.onResume();
+    watchBox();
     UpdateChecker.check(this);if(nativeProfile!=null)nativeProfile.refresh();
     if(logged&&section.equals("Inicio"))scheduleAdvertisement();
   }
@@ -453,7 +472,7 @@ public class MainActivity extends Activity {
       FrameLayout.LayoutParams params=(FrameLayout.LayoutParams)overlay.getLayoutParams();int width=(r-l)/2;
       if(params.width!=width){params.width=width;overlay.setLayoutParams(params);}
     });
-    overlay.addView(text(client==null?"SNAPTVNOW  ·  DEMO":"SNAPTVNOW  ·  TU ENTRETENIMIENTO",wide?11:12,CYAN,true));gap(overlay,8);
+    overlay.addView(text(BoxPanel.name()+(client==null?"  ·  DEMO":"  ·  TU ENTRETENIMIENTO"),wide?11:12,CYAN,true));gap(overlay,8);
     overlay.addView(text(headline,wide?22:18,WHITE,true));gap(overlay,4);overlay.addView(text(sub,12,WHITE,false));gap(overlay,8);
     TextView button=action(section.equals("Inicio")?(refreshing?"Actualizando…":"Actualizar contenido"): "Ver canales  ›",target);if(section.equals("Inicio"))refreshButton=button;button.setBackground(gradient(CYAN,0xff12a9c6,12));button.setTextColor(NAVY);
     int availableWidth=getResources().getDisplayMetrics().widthPixels-(wide?d(192+40):d(28));
@@ -462,8 +481,14 @@ public class MainActivity extends Activity {
     overlay.addView(button,new LinearLayout.LayoutParams(buttonWidth,d(38)));
   }
   private void home(){
+    if(BoxPanel.enabled&&!BoxPanel.design().equals("cinema")){
+      title(BoxPanel.design().equals("classic")?"¿Qué quieres ver?":"Explora tu contenido");
+      cards(new String[]{"TV en vivo","Películas","Series"},new String[]{"▣","▶","▤"},new int[]{CYAN,0xff315973,0xff57416e});gap(body,18);
+      hero("Bienvenido a "+BoxPanel.name(),"Tu servicio y tus favoritos",this::refreshContent);gap(body,18);continueWatching(true);
+      if(!items.isEmpty()){title("De tu última categoría");if(BoxPanel.design().equals("compact"))catalogGrid(items.subList(0,Math.min(12,items.size())));else catalogRow(items.subList(0,Math.min(12,items.size())));}return;
+    }
     hero("Todo tu entretenimiento","TV en vivo, películas y series en un solo lugar",this::refreshContent);gap(body,18);
-    title("Elige qué ver");body.addView(new HomeCategoryGrid(this,wide,this::categoryTile),new LinearLayout.LayoutParams(-1,-2));
+    title("Elige qué ver");if(BoxPanel.enabled)cards(new String[]{"TV en vivo","Películas","Series"},new String[]{"▣","▶","▤"},new int[]{CYAN,0xff315973,0xff57416e});else body.addView(new HomeCategoryGrid(this,wide,this::categoryTile),new LinearLayout.LayoutParams(-1,-2));
     gap(body,18);continueWatching(true);
     if(!items.isEmpty()){gap(body,18);title(client==null?"Vista previa":"De tu última categoría");catalogRow(items.subList(0,Math.min(12,items.size())));}
     gap(body,12);body.addView(text(client==null?"Vista de demostración. Conecta una línea para consultar su catálogo.":"Explora las categorías de tu línea para ver canales y títulos disponibles.",13,MUTED,false));
@@ -573,7 +598,7 @@ public class MainActivity extends Activity {
     TextView tile=action(icon+"\n"+name.toUpperCase(Locale.ROOT),()->{section=name;render();});tile.setGravity(Gravity.CENTER);tile.setTextSize(wide?19:17);
     tile.setBackground(gradient(color,PANEL,16));tile.setOnFocusChangeListener((v,f)->{tile.setBackground(f?gradient(CYAN,color,16):gradient(color,PANEL,16));tile.setTextColor(f?NAVY:WHITE);});return tile;
   }
-  private void sports(){if(client!=null&&!section.equals(loadedSection)){categoryPicker();return;}hero("PPV HOY en SNAPTVNOW","Encuentra eventos disponibles en tu línea",()->{section="TV en vivo";render();});gap(body,20);title(client==null?"Vista previa de eventos":"Eventos PPV");List<Catalog.Item> sports=new ArrayList<>();for(Catalog.Item i:items)if(i.category.equals("PPV HOY")||client==null&&i.category.equals("Deportes"))sports.add(i);catalogGrid(sports);}
+  private void sports(){if(client!=null&&!section.equals(loadedSection)){categoryPicker();return;}hero("PPV HOY en "+BoxPanel.name(),"Encuentra eventos disponibles en tu línea",()->{section="TV en vivo";render();});gap(body,20);title(client==null?"Vista previa de eventos":"Eventos PPV");List<Catalog.Item> sports=new ArrayList<>();for(Catalog.Item i:items)if(i.category.equals("PPV HOY")||client==null&&i.category.equals("Deportes"))sports.add(i);catalogGrid(sports);}
   private void guide(){title("Guía de programación");if(client==null){body.addView(text("Vista previa · Los horarios reales aparecerán si tu fuente incluye EPG.",15,MUTED,false));gap(body,20);guideTable();return;}body.addView(text("Selecciona un canal para consultar su EPG disponible.",15,MUTED,false));gap(body,14);int count=0;for(Catalog.Item i:items){if(!i.id.startsWith("live"))continue;TextView b=action("▣  "+i.title,()->loadEpg(i));body.addView(b,new LinearLayout.LayoutParams(-1,d(48)));gap(body,6);if(++count>=25)break;}if(count==0)body.addView(text("No hay canales para consultar.",15,MUTED,false));}
   private void loadEpg(Catalog.Item channel){final XtreamClient session=client;final int generation=profileGeneration;if(session==null)return;new Thread(()->{try{String value=session.epg(channel);runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;new AlertDialog.Builder(this).setTitle(channel.title).setMessage(value).setPositiveButton("Cerrar",null).show();});}catch(Exception e){runOnUiThread(()->{if(client==session&&generation==profileGeneration&&!isFinishing()&&!isDestroyed())Toast.makeText(this,"Guía no disponible",Toast.LENGTH_LONG).show();});}}).start();}
   private void guideTable(){body.addView(text("GUÍA DE PROGRAMACIÓN  ·  DEMO",17,CYAN,true));gap(body,9);for(int i=1;i<=3;i++){LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);line.setPadding(d(8),d(4),d(8),d(4));line.setBackground(shape(PANEL,8));TextView channel=text("Canal "+(char)('A'+i-1),14,WHITE,true);line.addView(channel,new LinearLayout.LayoutParams(d(wide?130:90),d(44)));TextView program=text("Programación no disponible",13,MUTED,false);line.addView(program);body.addView(line);gap(body,6);}}
@@ -758,9 +783,9 @@ public class MainActivity extends Activity {
     account.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(account,20);
     if(client!=null){
       account.addView(text(ProfileReference.managed(client.server())?"Conexión HTTPS y sincronización con la web activas.":client.server()!=null&&client.server().startsWith("https://")?"Conexión HTTPS activa.":"El servidor utiliza HTTP sin cifrado.",13,MUTED,false));gap(account,20);
-      account.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);
+      if(!BoxPanel.enabled){account.addView(action("VPN",this::openVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);
       account.addView(text("VPN: "+(VpnTunnel.isConnected()?"conectada":"sin conexión"),14,MUTED,false));gap(account,10);
-      account.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);
+      account.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(d(185),d(52)));gap(account,14);}
     }
     account.addView(action("Cerrar sesión",()->{closeProfile();SessionStore.clear(this);favorites.clear();logged=false;client=null;items=Catalog.demo();loadedSection="";activeGroup=null;activeGroupSection="";recentlyPlayed.clear();seen.clear();render();}),new LinearLayout.LayoutParams(d(185),d(52)));
     LinearLayout.LayoutParams updateParams=columns?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2);
@@ -807,7 +832,7 @@ public class MainActivity extends Activity {
     cover.addView(artwork,new FrameLayout.LayoutParams(-1,-1));
     LinearLayout panel=col();panel.setGravity(Gravity.CENTER);panel.setPadding(d(24),d(16),d(24),d(16));
     panel.setBackgroundColor(0xcc071729);cover.addView(panel,new FrameLayout.LayoutParams(-1,-1));
-    TextView brand=text("SNAPTVNOW",wide?26:24,CYAN,true);brand.setGravity(Gravity.CENTER);panel.addView(brand);
+    TextView brand=text(BoxPanel.name(),wide?26:24,CYAN,true);brand.setGravity(Gravity.CENTER);panel.addView(brand);
     gap(panel,18);
     TextView message=text(live?"Canal no disponible":"Contenido no disponible",wide?27:23,WHITE,true);
     message.setGravity(Gravity.CENTER);panel.addView(message);
@@ -844,6 +869,7 @@ public class MainActivity extends Activity {
     Toast.makeText(this,favorites.contains(favoriteId(item))?"Añadido a Mi lista":"Quitado de Mi lista",Toast.LENGTH_SHORT).show();
   }
   private void play(Catalog.Item item){
+    if(BoxPanel.enabled&&!BoxPanel.authorized()){showBoxBlocked();return;}
     if(item.url==null||item.url.isEmpty()){Toast.makeText(this,"Este título no tiene enlace de reproducción",Toast.LENGTH_LONG).show();return;}
     final boolean vod=!item.id.startsWith("live");
     final boolean sameSession=playing&&currentItem==item;
@@ -885,7 +911,7 @@ public class MainActivity extends Activity {
     LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(d(12),d(10),d(12),d(10));top.setBackground(gradient(0xe6071729,0x99071729,0));
     playerControls.addView(top,new FrameLayout.LayoutParams(-1,d(65),Gravity.TOP));
     TextView back=action("←",this::render);top.addView(back,new LinearLayout.LayoutParams(d(49),d(45)));
-    TextView label=text("SNAPTVNOW  ·  "+item.title,wide?18:15,WHITE,true);label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams labelParams=new LinearLayout.LayoutParams(0,-1,1);labelParams.leftMargin=d(10);top.addView(label,labelParams);
+    TextView label=text(BoxPanel.name()+"  ·  "+item.title,wide?18:15,WHITE,true);label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams labelParams=new LinearLayout.LayoutParams(0,-1,1);labelParams.leftMargin=d(10);top.addView(label,labelParams);
     TextView fav=action("♡",()->{toggleFavorite(item);showPlayerControls();});top.addView(fav,new LinearLayout.LayoutParams(d(48),d(45)));
     if(vod){
       HorizontalScrollView toolbar=new HorizontalScrollView(this);toolbar.setHorizontalScrollBarEnabled(false);
@@ -1082,7 +1108,34 @@ public class MainActivity extends Activity {
     info.setOnDismissListener(dialog->{if(trackDialog==info)trackDialog=null;if(video==expected)showPlayerControls();});
     trackDialog=info;info.show();
   }
-  @Override protected void onDestroy(){searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
+  private void showBoxBlocked(){
+    boxBlocked=true;releaseVideo();playing=false;closeProfile();client=null;logged=false;adGeneration++;if(adNext!=null)controlHandler.removeCallbacks(adNext);adNext=null;items=new ArrayList<>();seen.clear();
+    LinearLayout locked=col();locked.setGravity(Gravity.CENTER);locked.setPadding(d(24),d(24),d(24),d(24));locked.setBackgroundColor(NAVY);
+    TextView heading=text(BoxPanel.name(),26,CYAN,true);heading.setGravity(Gravity.CENTER);locked.addView(heading);gap(locked,18);
+    TextView reason=text(BoxPanel.problem(),18,WHITE,false);reason.setGravity(Gravity.CENTER);locked.addView(reason);gap(locked,20);
+    TextView retry=action("Reintentar",this::recreate);locked.addView(retry,new LinearLayout.LayoutParams(d(210),d(52)));gap(locked,10);locked.addView(action("Salir",this::finish));setContentView(locked);retry.requestFocus();
+  }
+  private void watchBox(){
+    if(!BoxPanel.enabled)return;final int generation=++boxGeneration;
+    if(boxTick!=null)controlHandler.removeCallbacks(boxTick);
+    boxTick=new Runnable(){public void run(){
+      if(generation!=boxGeneration||isFinishing()||isDestroyed())return;
+      final String previous=BoxPanel.brand().toString();
+      new Thread(()->{try{BoxPanel.refresh();}catch(Exception ignored){}
+        runOnUiThread(()->{
+          if(generation!=boxGeneration||isFinishing()||isDestroyed())return;
+          if(!BoxPanel.authorized())showBoxBlocked();
+          else if(boxBlocked){recreate();return;}
+          else {
+            if(client!=null){try{List<String> servers=AppConfig.parseServers(BoxPanel.configuration().getJSONArray("servers"));if(!servers.contains(client.server().replaceAll("/$",""))){releaseVideo();playing=false;closeProfile();client=null;logged=false;recreate();return;}}catch(Exception ignored){}}
+            if(!playing&&!previous.equals(BoxPanel.brand().toString()))render();loadAdvertisement();UpdateChecker.check(MainActivity.this);
+          }
+          controlHandler.postDelayed(this,300000);
+        });
+      },"boxpanel-state").start();
+    }};controlHandler.post(boxTick);
+  }
+  @Override protected void onDestroy(){boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
   private String playbackAccount(){return client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";}
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
   @Override public boolean dispatchKeyEvent(KeyEvent event){if(awaitingLiveRecoveryChoice&&liveTransportKey(event.getKeyCode()))return true;if(playing&&episodeController!=null&&event.getKeyCode()==KeyEvent.KEYCODE_MEDIA_NEXT){if(event.getAction()==KeyEvent.ACTION_DOWN)episodeController.nextNow();return true;}if(playing&&episodeEndView==null&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}

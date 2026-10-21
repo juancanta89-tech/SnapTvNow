@@ -32,16 +32,16 @@ final class UpdateInstaller {
     }catch(PackageManager.NameNotFoundException failure){throw new IOException("No se pudo verificar la actualización.",failure);}
   }
   static void validate(PackageInfo installed,PackageInfo candidate,int expectedCode) throws IOException {
-    if(installed==null||installed.packageName==null)throw new IOException("No se pudo verificar la instalación actual de SNAPTVNOW.");
+    if(installed==null||installed.packageName==null)throw new IOException("No se pudo verificar la instalación actual de "+BoxPanel.name()+".");
     if(candidate==null||!installed.packageName.equals(candidate.packageName))
-      throw new IOException("El archivo descargado no es una actualización de SNAPTVNOW.");
+      throw new IOException("El archivo descargado no es una actualización de "+BoxPanel.name()+".");
     if(version(candidate)!=expectedCode||version(candidate)<=version(installed))
       throw new IOException("La versión de la APK no coincide con la actualización publicada.");
     Signature[] current=signers(installed),next=signers(candidate);
-    if(!readable(current))throw new IOException("No se pudo leer la firma de esta instalación de SNAPTVNOW. Conserva la app instalada y utiliza la APK oficial con el instalador del dispositivo.");
+    if(!readable(current))throw new IOException("No se pudo leer la firma de esta instalación de "+BoxPanel.name()+". Conserva la app instalada y utiliza la APK oficial con el instalador del dispositivo.");
     if(!readable(next))throw new IOException("No se pudo leer la firma de la APK descargada. Vuelve a descargar la actualización oficial.");
     if(current.length!=next.length||!new HashSet<>(Arrays.asList(current)).equals(new HashSet<>(Arrays.asList(next))))
-      throw new IOException("La APK no tiene la firma de esta instalación de SNAPTVNOW.");
+      throw new IOException("La APK no tiene la firma de esta instalación de "+BoxPanel.name()+".");
   }
   private static Signature[] signers(PackageInfo info){
     if(Build.VERSION.SDK_INT>=28&&info.signingInfo!=null){
@@ -67,7 +67,7 @@ final class UpdateInstaller {
     Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".updates",apk);
     Intent intent=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive")
       .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-    intent.setClipData(ClipData.newRawUri("SNAPTVNOW",uri));
+    intent.setClipData(ClipData.newRawUri(""+BoxPanel.name()+"",uri));
     return intent;
   }
 }

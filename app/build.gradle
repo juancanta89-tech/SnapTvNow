@@ -6,8 +6,12 @@ def productionSigning = [
   alias: System.getenv('SNAPTVNOW_KEY_ALIAS'),
   keyPassword: System.getenv('SNAPTVNOW_KEY_PASSWORD')
 ]
+def boxFile = System.getenv('BOXPANEL_BUILD_FILE')
+def box = boxFile ? new groovy.json.JsonSlurper().parse(file(boxFile)) : null
+if (box && (!(box.appId ==~ /[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}/) || box.packageName != 'com.snaptvnow.box.a' + box.appId.replace('-', '') || !(box.versionCode instanceof Number) || box.versionCode < 1 || box.versionCode > 2100000000 || !(box.design in ['classic','cinema','compact']))) throw new GradleException('Invalid BoxPanel build identity')
+if (box && (!file('build/generated/boxpanel/assets/boxpanel.json').isFile() || new groovy.json.JsonSlurper().parse(file('build/generated/boxpanel/assets/boxpanel.json')) != box)) throw new GradleException('Run prepare-boxpanel.py for this exact app before building')
 android { namespace 'com.snaptvnow.tv'; compileSdk 36
- defaultConfig { applicationId 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode 50; versionName '1.0.21'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'; manifestPlaceholders = [appLabel: 'SNAPTVNOW'] }
+ defaultConfig { applicationId box ? box.packageName : 'com.snaptvnow.tv'; minSdk 23; targetSdk 35; versionCode box ? box.versionCode.intValue() : 50; versionName box ? box.versionName : '1.0.21'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'; manifestPlaceholders = [appLabel: box ? box.name : 'SNAPTVNOW'] }
  signingConfigs {
   production {
    storeFile file(productionSigning.file ?: 'production-key-not-configured.jks')
@@ -16,7 +20,12 @@ android { namespace 'com.snaptvnow.tv'; compileSdk 36
    keyPassword productionSigning.keyPassword ?: ''
   }
  }
- buildTypes { release { signingConfig signingConfigs.production }; debug { applicationIdSuffix '.vpntrial3'; versionNameSuffix '-vpn-test-3'; manifestPlaceholders.appLabel = 'SNAPTVNOW VPN Prueba 3' } }
+ buildTypes { release { signingConfig signingConfigs.production }; debug { if (!box) { applicationIdSuffix '.vpntrial3'; versionNameSuffix '-vpn-test-3'; manifestPlaceholders.appLabel = 'SNAPTVNOW VPN Prueba 3' } } }
+ if (box) {
+  sourceSets.main.assets.srcDir file('build/generated/boxpanel/assets')
+  sourceSets.release.res.srcDir file('build/generated/boxpanel/res')
+  sourceSets.debug.res.srcDir file('build/generated/boxpanel/res')
+ }
  packaging { jniLibs { useLegacyPackaging = true } }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
  testOptions { unitTests.includeAndroidResources = true }

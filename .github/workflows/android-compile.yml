@@ -10,8 +10,8 @@ concurrency:
 
 jobs:
   compile:
-    runs-on: macos-15-intel
-    timeout-minutes: 25
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -66,6 +66,18 @@ jobs:
           key: snaptv-audio-1.11.1-6.1.4-ndk26b-v1-${{ runner.os }}
       - name: Test VOD playback and build test APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Compile two isolated BoxPanel packages and their update
+        run: |
+          python3 -m venv "$RUNNER_TEMP/boxpanel-python"
+          "$RUNNER_TEMP/boxpanel-python/bin/pip" install Pillow==12.3.0
+          echo "$RUNNER_TEMP/boxpanel-python/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/boxpanel-python/bin:$PATH"
+          node scripts/test-boxpanel-packages.mjs
+      - name: Enable Android emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       - name: Decode real MP2, AAC, AC3 and EAC3 frames on Android 9
         timeout-minutes: 10
         uses: reactivecircus/android-emulator-runner@v2
@@ -76,7 +88,9 @@ jobs:
           emulator-boot-timeout: 240
           disable-animations: true
           emulator-options: -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none
-          script: gradle :app:connectedDebugAndroidTest --no-daemon
+          script: |
+            bash scripts/test-boxpanel-install.sh
+            gradle :app:connectedDebugAndroidTest --no-daemon
       - name: Upload playback test report
         if: always()
         uses: actions/upload-artifact@v4

@@ -43,7 +43,7 @@ public class AppUpdateActivity extends Activity {
       .putExtra("update_sha256",sha256).putExtra("update_size",size));
   }
   @Override protected void onCreate(Bundle state){
-    super.onCreate(state);
+    super.onCreate(state);if(!BoxPanel.enabled)BoxPanel.initialize(this);
     link=getIntent().getStringExtra(URL_EXTRA);code=getIntent().getIntExtra(CODE_EXTRA,0);
     String hash=getIntent().getStringExtra("update_sha256");sha256=hash==null?"":hash;
     expectedSize=getIntent().getLongExtra("update_size",0);
@@ -66,7 +66,7 @@ public class AppUpdateActivity extends Activity {
     LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);
     layout.setGravity(Gravity.CENTER_VERTICAL);layout.setPadding(dp(32),dp(24),dp(32),dp(24));
     layout.setBackgroundColor(Color.rgb(6,22,39));
-    TextView title=new TextView(this);title.setText("Actualizar SNAPTVNOW"+(name==null?"":" · "+name));
+    TextView title=new TextView(this);title.setText("Actualizar "+BoxPanel.name()+""+(name==null?"":" · "+name));
     title.setTextSize(26);title.setTextColor(Color.WHITE);layout.addView(title);
     message=new TextView(this);message.setTextSize(18);message.setTextColor(Color.rgb(185,210,222));
     message.setPadding(0,dp(24),0,dp(20));layout.addView(message);
@@ -106,7 +106,7 @@ public class AppUpdateActivity extends Activity {
           preferences().edit().putInt("code",code).putString("url",link).putString("file",apk.getName()).putString("sha256",sha256).putLong("size",expectedSize).apply();
           download=null;ready=true;progress.setVisibility(View.GONE);
           getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-          message.setText("Actualización descargada. Confirma la instalación para actualizar SNAPTVNOW.");
+          message.setText("Actualización descargada. Confirma la instalación para actualizar "+BoxPanel.name()+".");
           action.setEnabled(true);action.setText("Instalar actualización");close.setText("Más tarde");action.requestFocus();
           continueInstallation();
         }});
@@ -142,7 +142,7 @@ public class AppUpdateActivity extends Activity {
     if(!ready||!foreground)return;
     autoInstall=false;
     if(UpdateInstaller.needsPermission(this)){
-      message.setText("Permite que SNAPTVNOW instale actualizaciones. En Fire TV: Mi Fire TV → Opciones para desarrolladores → Instalar apps desconocidas → SNAPTVNOW. Después vuelve a esta pantalla.");
+      message.setText("Permite que "+BoxPanel.name()+" instale actualizaciones. En Fire TV: Mi Fire TV → Opciones para desarrolladores → Instalar apps desconocidas → "+BoxPanel.name()+". Después vuelve a esta pantalla.");
       action.setText("Permitir instalación");
       awaitingPermission=true;
       try{startActivityForResult(UpdateInstaller.permissionIntent(this),PERMISSION_REQUEST);}
