@@ -138,7 +138,7 @@ public class LivePlaybackRecoveryTest {
     transfer.onBytesTransferred(null,null,true,64*1024);ready();millis(250);assertEquals(1,reconnects);assertEquals("player_error_"+PlaybackException.ERROR_CODE_DECODING_FAILED,reason);
   }
   @Test public void duplicateBufferingCallbacksDoNotExtendTheDeadline(){
-    millis(10_000);buffering();millis(5_250);assertEquals(1,reconnects);
+    millis(6_000);buffering();millis(3_249);assertEquals(0,reconnects);millis(1);assertEquals(1,reconnects);
   }
   @Test public void returningFromBufferingDoesNotInheritAStaleVideoFrameDeadline(){
     ready();recovery.videoExpected(true);buffering();recovery.segmentDurationUs(12_000_000);millis(20_000);ready();
