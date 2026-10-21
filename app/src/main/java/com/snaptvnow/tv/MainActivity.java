@@ -100,6 +100,7 @@ public class MainActivity extends Activity {
   private boolean logged,wide,playing;
   private static final int VPN_PERMISSION_REQUEST=1407;
   private EditText loginUser,loginPass;
+  private TextView loginStatus;
   private VpnLocations.Config pendingVpn;
   private long resumePosition=-1;
   private boolean resumePaused;
@@ -278,6 +279,7 @@ public class MainActivity extends Activity {
       String u=user.getText().toString().trim(),p=pass.getText().toString();if(u.isEmpty()||p.isEmpty()){Toast.makeText(this,"Escribe usuario y contraseña",Toast.LENGTH_SHORT).show();return;}
       enterLine(u,p);
     });enter.setBackground(gradient(CYAN,0xff0fb5cd,12));enter.setTextColor(NAVY);panel.addView(enter,new LinearLayout.LayoutParams(wide?d(350):-1,d(54)));
+    loginStatus=text("",13,MUTED,false);loginStatus.setVisibility(View.GONE);panel.addView(loginStatus);
     gap(panel,14);TextView vpn=action("VPN",this::openVpn);panel.addView(vpn,new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));
     if(VpnTunnel.isConnected()){gap(panel,8);panel.addView(action("Desconectar VPN",this::disconnectVpn),new LinearLayout.LayoutParams(wide?d(350):-1,d(48)));}
     gap(panel,9);panel.addView(text("Tu sesión se guarda cifrada en este dispositivo hasta que cierres sesión.",13,MUTED,false));
@@ -341,13 +343,16 @@ public class MainActivity extends Activity {
   }
   private void enterLine(String u,String p){
     final int request=++loginRequest;
+    if(loginStatus!=null){loginStatus.setText("Obteniendo servidores…");loginStatus.setVisibility(View.VISIBLE);}
     new Thread(()->{try{
-      List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p);
+      List<String> servers=AppConfig.load(this);XtreamClient connected=XtreamClient.loginAny(servers,u,p,(number,total)->runOnUiThread(()->{
+        if(request==loginRequest&&!isFinishing()&&!isDestroyed()&&loginStatus!=null){loginStatus.setText("Probando servidor "+number+" de "+total+"…");loginStatus.setVisibility(View.VISIBLE);}
+      }));
       runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;try{
         SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();
         client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();
       }catch(Exception e){new AlertDialog.Builder(this).setTitle("No se pudo guardar la sesión").setMessage("Vuelve a iniciar sesión.").setPositiveButton("Aceptar",null).show();}});
-    }catch(Exception e){runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
+    }catch(Exception e){runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;if(loginStatus!=null)loginStatus.setVisibility(View.GONE);new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
   }
   private void checkDirectMessage(){
     final XtreamClient session=client;if(session==null)return;

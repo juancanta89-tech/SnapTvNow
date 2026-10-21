@@ -12,6 +12,12 @@ import java.util.List;
 
 /** Read-only client access for a subscriber line. Never place reseller credentials here. */
 public final class XtreamClient {
+  interface LoginRequest { String authenticate(String server,String username,String password) throws Exception; }
+  public interface LoginProgress { void onAttempt(int number,int total); }
+  static final class HttpFailure extends Exception {
+    final int status;
+    HttpFailure(int status){super("Respuesta del servidor (HTTP "+status+")");this.status=status;}
+  }
   public static volatile String SERVER;
   private final String username,password,sourceServer;
   public final String expires,maxConnections;
@@ -32,7 +38,7 @@ public final class XtreamClient {
     URL url=new URL(b.build().toString());
     HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(connectMs);c.setReadTimeout(readMs);c.setRequestProperty("Accept","application/json");
     try {
-      if(c.getResponseCode()!=200)throw new Exception("Servidor no disponible (HTTP "+c.getResponseCode()+")");
+      int status=c.getResponseCode();if(status!=200)throw new HttpFailure(status);
       ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
       try(InputStream in=c.getInputStream()){while((n=in.read(buf))!=-1){if(out.size()+n>maxBytes)throw new Exception("Respuesta demasiado grande");out.write(buf,0,n);}}
       return out.toString("UTF-8");
@@ -45,19 +51,34 @@ public final class XtreamClient {
     return new XtreamClient(SERVER,username,password,info.optString("exp_date",""),info.optString("max_connections",""));
   }
   public static XtreamClient loginAny(List<String> servers,String username,String password) throws Exception {
+    return loginAny(servers,username,password,null);
+  }
+  public static XtreamClient loginAny(List<String> servers,String username,String password,LoginProgress progress) throws Exception {
+    return attemptLogin(servers,username,password,(server,user,pass)->request(server,user,pass,"",null,5000,8000,256_000),progress);
+  }
+  static XtreamClient attemptLogin(List<String> servers,String username,String password,LoginRequest transport,LoginProgress progress) throws Exception {
     if(servers.isEmpty())throw new Exception("No hay servidores habilitados");
-    boolean rejected=false;String inactiveStatus=null;
-    for(String server:servers){
+    boolean rejected=false,denied=false,limited=false;String inactiveStatus=null;
+    for(int index=0;index<servers.size();index++){
+      if(progress!=null)progress.onAttempt(index+1,servers.size());
       try{
-        JSONObject root=new JSONObject(request(server,username,password,"",null,3000,4500,256_000));
+        String server=AppConfig.validate(servers.get(index));
+        JSONObject root=new JSONObject(transport.authenticate(server,username,password));
         JSONObject info=root.optJSONObject("user_info");
-        if(info==null||info.optInt("auth",0)!=1){rejected=true;continue;}
+        if(info==null)continue;
+        if(info.optInt("auth",0)!=1){rejected=true;continue;}
         String status=info.optString("status","");
         if(!status.equalsIgnoreCase("Active")){inactiveStatus=status;continue;}
         return new XtreamClient(server,username,password,info.optString("exp_date",""),info.optString("max_connections",""));
+      }catch(HttpFailure error){
+        if(error.status==401)rejected=true;
+        else if(error.status==403)denied=true;
+        else if(error.status==429)limited=true;
       }catch(Exception ignored){}
     }
     if(inactiveStatus!=null)throw new Exception("La línea está "+inactiveStatus);
+    if(limited)throw new Exception("Demasiados intentos de acceso. Espera unos minutos y vuelve a entrar.");
+    if(denied&&!rejected)throw new Exception("Los servidores rechazaron el acceso. Contacta a tu administrador.");
     throw new Exception(rejected?"Ningún servidor aceptó esta línea. Revisa el usuario y la contraseña.":"No se encontró un servidor disponible. Inténtalo de nuevo.");
   }
   public XtreamClient reconnect(List<String> servers) throws Exception {return loginAny(servers,username,password);}
