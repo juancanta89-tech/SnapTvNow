@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 @RunWith(RobolectricTestRunner.class) @Config(sdk=28) @LooperMode(LooperMode.Mode.PAUSED)
 public class PlaybackQualityTest {
@@ -67,21 +68,21 @@ public class PlaybackQualityTest {
  }
  @Test public void renderedFramesReachTheScopedReportAfterTheFirstMeasurementWindow()throws Exception{
   Context context=RuntimeEnvironment.getApplication();List<JSONObject> scoped=new ArrayList<>();
+  // Run delivery on this thread so the paused player clock cannot race it.
+  // NativeProfileSyncTest separately exercises the real background executor.
+  ExecutorService delivery=mock(ExecutorService.class);
+  doAnswer(call->{((Runnable)call.getArgument(0)).run();return null;}).when(delivery).execute(any(Runnable.class));
   NativeProfileSync sync=new NativeProfileSync(context,"quality-player",(op,body)->{
    if(op.equals("playback_metric")&&body.has("quality_ticket"))scoped.add(new JSONObject(body.toString()));
    return new JSONObject().put("ok",true).put("records",new JSONArray());
-  },()->{}){
-   // Drive delivery explicitly: this test advances the player's virtual clock,
-   // while NativeProfileSyncTest covers its real background executor.
-   @Override void metric(JSONObject metric,String ticket,int width,int height){queueMetric(metric,ticket,width,height);}
-  };
+  },()->{},delivery);
   ExoPlayer player=mock(ExoPlayer.class);when(player.getApplicationLooper()).thenReturn(Looper.getMainLooper());when(player.getVideoSize()).thenReturn(new VideoSize(1920,1080));when(player.isPlaying()).thenReturn(true);when(player.getPlayWhenReady()).thenReturn(true);when(player.getPlaybackState()).thenReturn(Player.STATE_READY);
   PlaybackTransfer transfer=new PlaybackTransfer();receipt(transfer,"https://api.snaptvnow.com/live/test/test/1.m3u8",FIRST);
   NativePlaybackMetrics metrics=new NativePlaybackMetrics(player,sync,new ProfileReference("live","123","ccf",""),transfer);
   try{
    metrics.onRenderedFirstFrame();DecoderCounters decoder=new DecoderCounters();metrics.onVideoEnabled(null,decoder);decoder.renderedOutputBufferCount=300;
-   sync.syncNow();assertTrue(scoped.isEmpty());
-   Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(11));sync.syncNow();
+   assertTrue(scoped.isEmpty());
+   Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(11));
    assertEquals("The scheduled player report must reach the scoped telemetry transport",1,scoped.size());
    JSONObject report=scoped.get(0);assertEquals(FIRST,report.getString("quality_ticket"));assertTrue(report.getJSONObject("metric").getLong("decoded")>0);assertTrue(report.getJSONObject("metric").getLong("watchMs")>=5000);assertEquals(1080,report.getJSONObject("observation").getInt("height"));
   }finally{metrics.close();sync.stop();}

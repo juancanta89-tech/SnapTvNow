@@ -23,7 +23,7 @@ final class NativeProfileSync {
  private final String account;
  private Remote remote;
  private final Runnable changed;
- private final ExecutorService executor=Executors.newSingleThreadExecutor();
+ private final ExecutorService executor;
  private final Map<String,JSONObject> records=new LinkedHashMap<>(),pending=new LinkedHashMap<>();
  private static final class Metric {
   final JSONObject payload;final long measuredAt=android.os.SystemClock.elapsedRealtime();
@@ -33,6 +33,10 @@ final class NativeProfileSync {
  private boolean closed,scheduled,refreshRequested;
  private long lastTime;
  NativeProfileSync(Context context,String account,Remote remote,Runnable changed){
+  this(context,account,remote,changed,Executors.newSingleThreadExecutor());
+ }
+ NativeProfileSync(Context context,String account,Remote remote,Runnable changed,ExecutorService executor){
+  this.executor=executor;
   preferences=context.getApplicationContext().getSharedPreferences("native_profile",Context.MODE_PRIVATE);this.account=account;this.remote=remote;this.changed=changed;
   read(preferences.getString(account+".records","[]"),records);read(preferences.getString(account+".pending","[]"),pending);lastTime=preferences.getLong(account+".clock",0);
  }
