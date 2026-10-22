@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.hls.HlsManifest;
 final class LivePlaybackRecovery implements Player.Listener, AutoCloseable {
   static final class RetryState {
     int failures, recoveryRequests;
+    boolean alternateTransportTried;
     long delay() { return Math.min(8_000L, 250L << Math.min(failures++, 5)); }
   }
   interface Listener { void reconnect(String reason); }

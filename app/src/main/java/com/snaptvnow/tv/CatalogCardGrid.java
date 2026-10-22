@@ -32,7 +32,7 @@ final class CatalogCardGrid extends LinearLayout {
       for(int column=0;column<columns;column++){
         int index=start+column;View card;
         int height;
-        if(index<end){Catalog.Item item=items.get(index);card=factory.create(item);height=item.id.startsWith("live")?channelHeight:posterHeight;if(firstNew==null)firstNew=card;}
+        if(index<end){Catalog.Item item=items.get(index);card=factory.create(item);card.setTag("catalog-card:"+item.id);height=item.id.startsWith("live")?channelHeight:posterHeight;if(firstNew==null)firstNew=card;}
         else{card=new View(getContext());height=1;}
         LayoutParams params=new LayoutParams(0,dp(height),1);params.setMargins(dp(3),dp(2),dp(3),dp(8));row.addView(card,params);
       }
@@ -46,6 +46,12 @@ final class CatalogCardGrid extends LinearLayout {
     }
     if(focusNew&&firstNew!=null)firstNew.requestFocus();
   }
+  int shownCount(){return shown;}
+  void restoreShown(int previous,String selected){
+    int wanted=previous;for(int i=0;i<items.size();i++)if(items.get(i).id.equals(selected)){wanted=Math.max(wanted,i+1);break;}
+    while(shown<Math.min(items.size(),wanted))appendPage(false);
+  }
+  void focusItem(String id){View card=findViewWithTag("catalog-card:"+id);if(card!=null)card.requestFocus();}
   private GradientDrawable buttonBackground(boolean focused){
     GradientDrawable bg=new GradientDrawable();bg.setColor(0xff102b40);bg.setCornerRadius(dp(10));
     bg.setStroke(dp(focused?3:1),focused?0xff29d8df:0xff214357);return bg;

@@ -64,6 +64,15 @@ public class LiveRecoveryChoiceTest {
   @Test public void oldOptionCannotOverrideANewerChannelSelection()throws Exception{
     choice(source,first);View oldButton=button("live_720");Catalog.Item another=new Catalog.Item("live3","Noticias","TV en vivo","https://example.invalid/live/account/test/3.m3u8","");player();play(another);oldButton.performClick();assertSame(another,field("currentItem"));assertEquals(2,activity.creations);
   }
+  @Test public void managedChannelTriesBothTransportsWithinOneViewerSession()throws Exception{
+    Catalog.Item managed=new Catalog.Item("live169","ESPN CHI","TV en vivo","https://api.snaptvnow.com/live/test/password/169.m3u8","");
+    String viewer=(String)field("playbackViewerId");ExoPlayer continuous=player();play(managed);
+    assertEquals("https://api.snaptvnow.com/live/test/password/169.ts",field("liveMediaUrl"));
+    ExoPlayer hls=player();((LivePlaybackRecovery)field("liveRecovery")).failure("test_error");Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250));
+    assertEquals(managed.url,field("liveMediaUrl"));assertEquals(viewer,field("playbackViewerId"));
+    player();((LivePlaybackRecovery)field("liveRecovery")).failure("test_error");Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500));
+    assertEquals(managed.url,field("liveMediaUrl"));assertTrue(((LivePlaybackRecovery.RetryState)field("liveRetries")).alternateTransportTried);assertEquals(viewer,field("playbackViewerId"));
+  }
   @Test public void backgroundReturnRestoresChoiceWithoutPreparingOrStartingMedia()throws Exception{
     choice(source,first);activity.onStop();ExoPlayer restored=player();activity.onStart();assertTrue((boolean)field("awaitingLiveRecoveryChoice"));assertNotNull(button("live_retry"));assertNull(field("liveRecovery"));verify(restored,never()).prepare();verify(restored,never()).play();assertFalse(restored.getPlayWhenReady());
   }

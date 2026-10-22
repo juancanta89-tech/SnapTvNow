@@ -90,5 +90,10 @@ public class NativeProfileSyncTest {
    assertNull(NativeProfileSync.connect(context,null,server,()->{}));
   }
  }
+ @Test public void closingAPlayerReleasesItsReceiptEvenWhenTheProfileStops()throws Exception{
+  java.util.concurrent.CountDownLatch released=new java.util.concurrent.CountDownLatch(1);String ticket="a".repeat(80);
+  NativeProfileSync sync=new NativeProfileSync(context,"closing-account",(op,body)->{assertEquals("playback_release",op);assertEquals(ticket,body.getString("quality_ticket"));assertFalse(body.has("sid"));released.countDown();return new JSONObject().put("ok",true);},()->{});
+  sync.releasePlayback(ticket);sync.stop();assertTrue(released.await(5,java.util.concurrent.TimeUnit.SECONDS));assertFalse(context.getSharedPreferences("native_profile",0).getAll().toString().contains(ticket));
+ }
 
 }

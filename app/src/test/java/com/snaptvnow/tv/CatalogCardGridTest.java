@@ -45,4 +45,9 @@ public class CatalogCardGridTest {
     assertEquals(83,grid.getChildCount());
     LinearLayout finalRow=(LinearLayout)grid.getChildAt(82);assertEquals("Canal 330",((TextView)finalRow.getChildAt(2)).getText());
   }
+  @Test public void returningFromPlaybackRestoresPagesAndTheSelectedChannel(){
+    CatalogCardGrid grid=grid(331,false,700);grid.restoreShown(96,"live95");assertEquals(96,grid.shownCount());
+    activity.setContentView(grid);grid.focusItem("live95");assertTrue(grid.findViewWithTag("catalog-card:live95").hasFocus());
+    CatalogCardGrid rotated=grid(331,true,960);rotated.restoreShown(grid.shownCount(),"live95");assertNotNull(rotated.findViewWithTag("catalog-card:live95"));assertTrue(rotated.shownCount()>=96);
+  }
 }

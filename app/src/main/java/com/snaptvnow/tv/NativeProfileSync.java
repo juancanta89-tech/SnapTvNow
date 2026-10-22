@@ -24,6 +24,7 @@ final class NativeProfileSync {
  private Remote remote;
  private final Runnable changed;
  private final ExecutorService executor;
+ private final ExecutorService releases=Executors.newSingleThreadExecutor();
  private final Map<String,JSONObject> records=new LinkedHashMap<>(),pending=new LinkedHashMap<>();
  private static final class Metric {
   final JSONObject payload;final long measuredAt=android.os.SystemClock.elapsedRealtime();
@@ -94,6 +95,11 @@ final class NativeProfileSync {
  }
  void metric(JSONObject metric){queueMetric(metric);refresh();}
  void metric(JSONObject metric,String ticket,int width,int height){queueMetric(metric,ticket,width,height);refresh();}
+ void releasePlayback(String ticket){
+  final Remote connection;synchronized(this){if(closed||remote==null||ticket==null||!ticket.matches("[A-Za-z0-9_-]{40,4096}"))return;connection=remote;}
+  // Release the old account's exact playback independently of telemetry retries.
+  try{releases.execute(()->{try{connection.call("playback_release",new JSONObject().put("quality_ticket",ticket));}catch(Exception ignored){/* Cancellation/lease expiry remains the fallback. */}});}catch(java.util.concurrent.RejectedExecutionException ignored){}
+ }
  synchronized void refresh(){
   if(closed)return;refreshRequested=true;if(scheduled)return;scheduled=true;
   executor.execute(()->{
@@ -121,9 +127,9 @@ final class NativeProfileSync {
   }
   synchronized(this){if(closed)return;}changed.run();
  }
- synchronized void stop(){closed=true;remote=null;metrics.clear();executor.shutdownNow();}
+ synchronized void stop(){closed=true;remote=null;metrics.clear();executor.shutdownNow();releases.shutdown();}
  private static final class ApiRemote implements Remote {
-  private final XtreamClient client;private String token;
+  private final XtreamClient client;private volatile String token;
   ApiRemote(XtreamClient client){this.client=client;}
   public JSONObject call(String operation,JSONObject extra) throws Exception {
    for(int attempt=0;attempt<2;attempt++){
