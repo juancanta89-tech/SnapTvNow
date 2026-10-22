@@ -865,6 +865,7 @@ public class MainActivity extends Activity {
     TextView suggestion=text(status!=null?status:next!=null?"Conectando al siguiente canal disponible":"Inténtalo más tarde",wide?19:17,WHITE,false);
     suggestion.setGravity(Gravity.CENTER);panel.addView(suggestion);
     gap(panel,23);
+    if(!live){TextView retry=action("Reintentar",()->{if(playing&&currentItem==item)play(item);});panel.addView(retry,new LinearLayout.LayoutParams(d(220),d(48)));gap(panel,10);}
     if(next!=null){
       TextView counter=text("3",wide?42:38,CYAN,true);counter.setGravity(Gravity.CENTER);
       panel.addView(counter,new LinearLayout.LayoutParams(d(220),d(62)));gap(panel,10);
@@ -925,7 +926,7 @@ public class MainActivity extends Activity {
     }@Override public void onPlayerError(PlaybackException error){
       if(!playing||currentItem!=item||video!=activePlayer)return;
       if(findingOnline)controlHandler.post(()->{if(playing&&findingOnline&&currentItem==item)tryNextOnline(item);});
-      else if(vod)unavailable(stage,item,null);
+      else if(vod&&(vodSession==null||!vodSession.recover(error)))unavailable(stage,item,null);
     }});
     if(!vod&&!restoreLiveChoice)attachLiveRecovery(item,activePlayer);
     if(vod){playbackHistory.remember(playbackAccount(),item);Artwork.rememberHistory(getApplicationContext(),PlaybackHistory.artworkKey(playbackAccount(),item),item.artwork);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}

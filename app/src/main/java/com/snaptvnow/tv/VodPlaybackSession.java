@@ -4,6 +4,8 @@ import android.os.Handler;
 import android.os.Looper;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.datasource.HttpDataSource;
 
 /** Saves the current VOD before teardown and restores it before Media3 prepares the source. */
 final class VodPlaybackSession implements Player.Listener {
@@ -13,7 +15,20 @@ final class VodPlaybackSession implements Player.Listener {
   private final String account, contentId;
   private final Handler handler = new Handler(Looper.getMainLooper());
   private boolean reachedReady, completed, closed;
+  private boolean retryPending;
+  private int retries;
+  private MediaItem mediaItem;
+  private long retryPosition;
   private long requestedStartPosition;
+  private final Runnable reconnect = this::reconnect;
+  private void reconnect(){
+    if(closed||!retryPending||!player.getPlayWhenReady()
+        ||player.getPlaybackSuppressionReason()!=Player.PLAYBACK_SUPPRESSION_REASON_NONE)return;
+    retryPending=false;reachedReady=false;requestedStartPosition=retryPosition;
+    // Reopen the source and its extractor at the same timestamp. Retrying only
+    // the failed byte range can retain incomplete MP4 metadata from startup.
+    player.setMediaItem(mediaItem,requestedStartPosition);player.prepare();
+  }
   private final Runnable checkpoint = new Runnable() {
     @Override public void run() {
       if (closed) return;
@@ -30,6 +45,7 @@ final class VodPlaybackSession implements Player.Listener {
   }
 
   void start(MediaItem item, long lifecyclePosition, boolean paused) {
+    mediaItem=item;
     requestedStartPosition = lifecyclePosition >= 0
         ? lifecyclePosition : history.position(account, contentId);
     player.addListener(this);
@@ -42,6 +58,7 @@ final class VodPlaybackSession implements Player.Listener {
   @Override public void onPlaybackStateChanged(int state) {
     if (closed) return;
     if (state == Player.STATE_READY) {
+      cancelRecovery();
       reachedReady = true;
       long duration = player.getDuration();
       // A provider may replace the file under an existing ID with a shorter file.
@@ -51,6 +68,7 @@ final class VodPlaybackSession implements Player.Listener {
       }
       requestedStartPosition = -1;
     } else if (state == Player.STATE_ENDED) {
+      cancelRecovery();
       completed = true;
       history.complete(account, contentId);
     }
@@ -58,7 +76,38 @@ final class VodPlaybackSession implements Player.Listener {
 
   @Override public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
     if (!playWhenReady) save(true);
+    if(!playWhenReady)handler.removeCallbacks(reconnect);
+    else if(retryPending){handler.removeCallbacks(reconnect);handler.postDelayed(reconnect,500);}
   }
+  @Override public void onPlaybackSuppressionReasonChanged(int reason){
+    if(!closed&&retryPending&&reason==Player.PLAYBACK_SUPPRESSION_REASON_NONE&&player.getPlayWhenReady()){
+      handler.removeCallbacks(reconnect);handler.postDelayed(reconnect,500);
+    }
+  }
+
+  /** Called only after Media3 reports a terminal load error, never during an
+   * advancing download. Bounded per viewing; no changes to account or title. */
+  boolean recover(PlaybackException error){
+    if(closed||completed||mediaItem==null||!retryable(error)){cancelRecovery();return false;}
+    if(retryPending)return true;
+    if(retries>=2){cancelRecovery();return false;}
+    retryPosition=lifecyclePosition();save(true);reachedReady=false;requestedStartPosition=retryPosition;retryPending=true;
+    handler.postDelayed(reconnect,++retries==1?500:1500);return true;
+  }
+  private static boolean retryable(PlaybackException error){
+    if(error==null)return false;
+    if(error.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+        ||error.errorCode==PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)return true;
+    if(error.errorCode!=PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)return false;
+    Throwable cause=error;for(int depth=0;cause!=null&&depth<12;depth++,cause=cause.getCause()){
+      if(cause instanceof HttpDataSource.InvalidResponseCodeException){
+        int status=((HttpDataSource.InvalidResponseCodeException)cause).responseCode;
+        return status==408||status==429||status>=500&&status<=599;
+      }
+    }
+    return false;
+  }
+  private void cancelRecovery(){retryPending=false;handler.removeCallbacks(reconnect);}
 
   @Override public void onPositionDiscontinuity(
       Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
@@ -88,6 +137,7 @@ final class VodPlaybackSession implements Player.Listener {
     if (closed) return;
     save(true);
     closed = true;
+    cancelRecovery();
     handler.removeCallbacks(checkpoint);
     player.removeListener(this);
   }
