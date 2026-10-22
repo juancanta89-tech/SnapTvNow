@@ -36,7 +36,7 @@ public class LivePlayerReplacementTest {
   @Before public void setUp()throws Exception {
     activity=Robolectric.buildActivity(TestActivity.class).get();oldPlayer=mock(ExoPlayer.class);newPlayer=mock(ExoPlayer.class);view=mock(PlayerView.class);
     when(oldPlayer.getPlayWhenReady()).thenReturn(true);when(newPlayer.getPlayWhenReady()).thenReturn(true);
-    activity.replacement=newPlayer;field("video",oldPlayer);field("playerView",view);field("currentItem",channel);field("playing",true);
+    activity.replacement=newPlayer;field("video",oldPlayer);field("playerView",view);field("currentItem",channel);field("playing",true);field("liveMediaUrl",channel.url);
   }
   @After public void tearDown()throws Exception {
     LivePlaybackRecovery recovery=(LivePlaybackRecovery)field("liveRecovery");if(recovery!=null)recovery.close();
