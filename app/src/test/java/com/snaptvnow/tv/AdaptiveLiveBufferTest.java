@@ -21,10 +21,11 @@ public class AdaptiveLiveBufferTest {
   assertTrue(b.shouldStartPlayback(params.apply(1000000L,false)));
   assertFalse(b.shouldStartPlayback(params.apply(4000000L,true)));
   assertTrue(b.shouldStartPlayback(params.apply(8000000L,true)));
+  androidx.media3.exoplayer.upstream.Allocator allocator=b.getAllocator(id);
   java.util.List<androidx.media3.exoplayer.upstream.Allocation> allocated=new java.util.ArrayList<>();
-  while(b.getAllocator(id).getTotalBytesAllocated()<32*1024*1024)allocated.add(b.getAllocator(id).allocate());
+  while(allocator.getTotalBytesAllocated()<32*1024*1024)allocated.add(allocator.allocate());
   assertTrue(b.shouldStartPlayback(params.apply(4000000L,true)));
-  for(androidx.media3.exoplayer.upstream.Allocation allocation:allocated)b.getAllocator(id).release(allocation);
+  for(androidx.media3.exoplayer.upstream.Allocation allocation:allocated)allocator.release(allocation);
   b.onReleased(id);
  }
 
