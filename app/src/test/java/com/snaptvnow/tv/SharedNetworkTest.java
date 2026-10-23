@@ -14,9 +14,10 @@ public class SharedNetworkTest {
  }
  @Test public void jsonRedirectsCannotForwardLoginAndOversizedBodiesAreBounded()throws Exception{
   try(MockWebServer server=new MockWebServer()){
-   server.enqueue(new MockResponse().setResponseCode(302).addHeader("Location","https://other.invalid/steal"));server.enqueue(new MockResponse().setBody("123456"));server.start();
+   server.enqueue(new MockResponse().setResponseCode(302).addHeader("Location","https://other.invalid/steal"));server.enqueue(new MockResponse().setBody("123456"));server.enqueue(new MockResponse().setResponseCode(302).addHeader("Location","https://other.invalid/video"));server.start();
    try(Response r=SharedNetwork.execute(new Request.Builder().url(server.url("/login?password=fixture")).build(),1000,1000)){assertEquals(302,r.code());}
    try(Response r=SharedNetwork.execute(new Request.Builder().url(server.url("/big")).build(),1000,1000)){try{SharedNetwork.text(r,5);fail("must reject oversized response");}catch(java.io.IOException expected){assertEquals("response_too_large",expected.getMessage());}}
+   try(Response r=SharedNetwork.media(1000).newCall(new Request.Builder().url(server.url("/media")).build()).execute()){assertEquals(302,r.code());}
   }
  }
 }

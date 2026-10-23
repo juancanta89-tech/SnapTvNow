@@ -11,7 +11,7 @@ import okhttp3.Response;
 final class SharedNetwork {
   private static final OkHttpClient BASE=new OkHttpClient.Builder()
       .connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS)
-      .retryOnConnectionFailure(true).build();
+      .retryOnConnectionFailure(true).followSslRedirects(false).build();
   static OkHttpClient media(int readMs){return BASE.newBuilder().readTimeout(readMs,TimeUnit.MILLISECONDS).build();}
   static Response execute(Request request,int connectMs,int readMs)throws java.io.IOException {
     return BASE.newBuilder().followRedirects(false).followSslRedirects(false)
