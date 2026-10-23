@@ -4,11 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -139,12 +134,13 @@ final class NativeProfileSync {
    }throw new Exception("profile_auth_required");
   }
   private JSONObject post(JSONObject body) throws Exception {
-   HttpURLConnection c=(HttpURLConnection)new URL("https://api.snaptvnow.com/").openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(6000);c.setReadTimeout(10000);c.setRequestMethod("POST");c.setRequestProperty("Content-Type","application/json");c.setDoOutput(true);
-   try{byte[] payload=body.toString().getBytes(StandardCharsets.UTF_8);c.setFixedLengthStreamingMode(payload.length);try(java.io.OutputStream out=c.getOutputStream()){out.write(payload);}
-    int code=c.getResponseCode();if(code==401)throw new Exception("profile_auth_required");if(code!=200)throw new Exception("profile_unavailable");
-    ByteArrayOutputStream bytes=new ByteArrayOutputStream();byte[] buffer=new byte[4096];try(InputStream in=c.getInputStream()){int n;while((n=in.read(buffer))!=-1){if(bytes.size()+n>500000)throw new Exception("profile_too_large");bytes.write(buffer,0,n);}}
-    return new JSONObject(bytes.toString("UTF-8"));
-   }finally{c.disconnect();}
+   okhttp3.Request request=new okhttp3.Request.Builder().url("https://api.snaptvnow.com/")
+       .post(okhttp3.RequestBody.create(body.toString(),okhttp3.MediaType.get("application/json; charset=utf-8"))).build();
+   try(okhttp3.Response response=SharedNetwork.execute(request,6000,10000)){
+    if(response.code()==401)throw new Exception("profile_auth_required");
+    if(response.code()!=200)throw new Exception("profile_unavailable");
+    return new JSONObject(SharedNetwork.text(response,500000));
+   }
   }
  }
 }

@@ -15,6 +15,8 @@ import android.widget.TextView;
 final class ChannelCard extends FrameLayout {
   private static final int PANEL=0xff102b40, CYAN=0xff29d8df, WHITE=0xfff4f8fc;
   private boolean saved;
+  private Runnable prepare;
+  void prepareOnFocus(Runnable action){prepare=action;}
   private final TextView heart;
   private int dp(float value){return Math.round(value*getResources().getDisplayMetrics().density);}
   private GradientDrawable background(boolean focused){
@@ -40,7 +42,7 @@ final class ChannelCard extends FrameLayout {
     heart.setOnClickListener(v->{saved=!saved;updateHeart(item.title);toggle.run();});
     heart.setOnFocusChangeListener((v,focused)->{heart.setTextColor(focused?CYAN:WHITE);setBackground(background(focused||hasFocus()));});
     setOnClickListener(v->open.run());setOnLongClickListener(v->{details.run();return true;});
-    setOnFocusChangeListener((v,focused)->setBackground(background(focused||heart.hasFocus())));
+    setOnFocusChangeListener((v,focused)->{setBackground(background(focused||heart.hasFocus()));if(focused&&prepare!=null)prepare.run();});
   }
   private void updateHeart(String title){heart.setText(saved?"♥":"♡");heart.setContentDescription((saved?"Quitar de favoritos: ":"Añadir a favoritos: ")+title);}
 }
