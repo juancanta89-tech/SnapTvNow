@@ -28,7 +28,10 @@ android { namespace 'com.snaptvnow.tv'; compileSdk 36
  }
  packaging { jniLibs { useLegacyPackaging = true } }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
- testOptions { unitTests.includeAndroidResources = true }
+ testOptions {
+  unitTests.includeAndroidResources = true
+  unitTests.all { systemProperty "robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2" }
+ }
 }
 dependencies {
  implementation project(':audio-decoder')
