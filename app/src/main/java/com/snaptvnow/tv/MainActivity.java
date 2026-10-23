@@ -114,7 +114,7 @@ public class MainActivity extends Activity {
 
   private String section="Inicio", query="";
   private Catalog.Item currentItem;
-  private boolean logged,wide,playing;
+  private boolean logged,wide,playing,foreground;
   private static final int VPN_PERMISSION_REQUEST=1407;
   private EditText loginUser,loginPass;
   private TextView loginStatus;
@@ -193,7 +193,7 @@ public class MainActivity extends Activity {
   private TextView action(String label,Runnable task){TextView v=text(label,15,WHITE,true);v.setGravity(Gravity.CENTER);v.setPadding(d(12),d(7),d(12),d(7));v.setBackground(shape(PANEL,12));v.setFocusable(true);v.setOnClickListener(w->task.run());v.setOnFocusChangeListener((w,focus)->{v.setBackground(focus?gradient(CYAN,0xff10abce,12):shape(PANEL,12));v.setTextColor(focus?NAVY:WHITE);v.setScaleX(focus?1.025f:1f);v.setScaleY(focus?1.025f:1f);});return v;}
   private void title(String s){body.addView(text(s,wide?25:22,WHITE,true));gap(body,12);}
   @Override public void onCreate(Bundle b){
-    super.onCreate(b);BoxPanel.initialize(this);if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();}CrashDiagnostics.install(this);prefs=getSharedPreferences("demo",MODE_PRIVATE);liveTransport.attach(getSharedPreferences("live_transport_v2",MODE_PRIVATE));playbackHistory=new PlaybackHistory(this);accountFavorites=new AccountFavorites(this);VpnTunnel.initialize(this);
+    super.onCreate(b);CrashDiagnostics.install(this);BoxPanel.initialize(this);if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();}prefs=getSharedPreferences("demo",MODE_PRIVATE);liveTransport.attach(getSharedPreferences("live_transport_v2",MODE_PRIVATE));playbackHistory=new PlaybackHistory(this);accountFavorites=new AccountFavorites(this);VpnTunnel.initialize(this);
     final String previousCrash=CrashDiagnostics.consume(this);
     TextView loading=text(BoxPanel.name()+"\nConectando…",23,CYAN,true);
     loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(NAVY);setContentView(loading);
@@ -218,12 +218,7 @@ public class MainActivity extends Activity {
         if(logged)items=new ArrayList<>();
         for(Catalog.Item i:items)seen.put(i.id,i);
         render();
-        if(previousCrash!=null)new AlertDialog.Builder(this).setTitle("Diagnóstico VPN")
-          .setMessage(previousCrash).setPositiveButton("Copiar",(dialog,which)->{
-            ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico VPN",previousCrash));
-            Toast.makeText(this,"Diagnóstico copiado",Toast.LENGTH_SHORT).show();
-          }).setNegativeButton("Cerrar",null).show();
+        if(previousCrash!=null)showCrashDiagnostics(previousCrash,true);
         UpdateChecker.check(this);
         if(client!=null)checkDirectMessage();
         loadAdvertisement();
@@ -427,27 +422,28 @@ public class MainActivity extends Activity {
     adBitmap=picture;if(adView!=null)adView.setImageBitmap(picture);
   }
   private void scheduleAdvertisement(){
-    if(adNext!=null)controlHandler.removeCallbacks(adNext);
-    if(!section.equals("Inicio")||adSlides.size()<2)return;
+    if(adNext!=null)controlHandler.removeCallbacks(adNext);adNext=null;
+    if(!foreground||isFinishing()||isDestroyed()||!section.equals("Inicio")||adSlides.size()<2)return;
     int generation=adGeneration;
     adNext=()->{
-      if(generation!=adGeneration||!section.equals("Inicio"))return;
+      if(generation!=adGeneration||!foreground||isFinishing()||isDestroyed()||!section.equals("Inicio"))return;
       adIndex=(adIndex+1)%adSlides.size();Advertisement.Slide slide=adSlides.get(adIndex);
       new Thread(()->{android.graphics.Bitmap picture=null;try{picture=Advertisement.image(slide);}catch(Exception ignored){}
         final android.graphics.Bitmap ready=picture;
-        runOnUiThread(()->{if(generation!=adGeneration||!section.equals("Inicio"))return;
+        runOnUiThread(()->{if(generation!=adGeneration||!foreground||isFinishing()||isDestroyed()||!section.equals("Inicio"))return;
           if(ready!=null)displayAdvertisement(ready);scheduleAdvertisement();});}).start();
     };
     controlHandler.postDelayed(adNext,adSlides.get(adIndex).seconds*1000L);
   }
   @Override protected void onPause(){
+    foreground=false;
     boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);boxTick=null;
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}
     if(vodSession!=null){vodSession.saveNow();if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}
     super.onPause();
   }
   @Override protected void onResume(){
-    super.onResume();
+    super.onResume();foreground=true;
     watchBox();
     UpdateChecker.check(this);if(nativeProfile!=null)nativeProfile.refresh();
     if(logged&&section.equals("Inicio"))scheduleAdvertisement();
@@ -457,7 +453,7 @@ public class MainActivity extends Activity {
     new Thread(()->{try{
       List<Advertisement.Slide> slides=Advertisement.playlist();
       android.graphics.Bitmap picture=slides.isEmpty()?null:Advertisement.image(slides.get(0));
-      runOnUiThread(()->{if(generation!=adGeneration)return;adSlides=slides;adIndex=0;
+      runOnUiThread(()->{if(generation!=adGeneration||isFinishing()||isDestroyed())return;adSlides=slides;adIndex=0;
         displayAdvertisement(picture);scheduleAdvertisement();});
     }catch(Exception ignored){} }).start();
   }
@@ -834,6 +830,15 @@ public class MainActivity extends Activity {
     results.addView(grid,new LinearLayout.LayoutParams(-1,-2));
   }
   private String formatExpiry(String value){try{long unix=Long.parseLong(value);if(unix<=0)return "Sin fecha";return new java.text.SimpleDateFormat("dd/MM/yyyy",Locale.getDefault()).format(new java.util.Date(unix*1000));}catch(Exception e){return "No disponible";}}
+  private void showCrashDiagnostics(String report,boolean pending){
+    if(isFinishing()||isDestroyed())return;
+    new AlertDialog.Builder(this).setTitle("Diagnóstico de cierres").setMessage(report)
+      .setPositiveButton("Copiar",(dialog,which)->{
+        ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+        if(clipboard!=null){clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico de cierres",report));Toast.makeText(this,"Diagnóstico copiado",Toast.LENGTH_SHORT).show();}
+        if(pending)CrashDiagnostics.acknowledge(this,report);
+      }).setNegativeButton("Cerrar",(dialog,which)->{if(pending)CrashDiagnostics.acknowledge(this,report);}).show();
+  }
   private void account(){
     title("Cuenta y configuración");
     boolean columns=catalogWindowWidth()>=640;
@@ -841,6 +846,7 @@ public class MainActivity extends Activity {
     body.addView(content,new LinearLayout.LayoutParams(-1,-2));
     LinearLayout account=col();
     content.addView(account,columns?new LinearLayout.LayoutParams(0,-2,1):new LinearLayout.LayoutParams(-1,-2));
+    account.addView(action("Diagnóstico de cierres",()->showCrashDiagnostics(CrashDiagnostics.report(this),false)),new LinearLayout.LayoutParams(d(260),d(52)));gap(account,14);
     account.addView(text(client==null?"Sesión de demostración":"Línea activa",18,WHITE,true));gap(account,10);
     account.addView(text(client==null?"La fecha de vencimiento y el límite de dispositivos se mostrarán al conectar una línea.":"Vencimiento: "+formatExpiry(client.expires)+"  ·  Conexiones: "+client.maxConnections,15,MUTED,false));gap(account,20);
     if(client!=null){
@@ -1232,7 +1238,7 @@ public class MainActivity extends Activity {
       },"boxpanel-state").start();
     }};controlHandler.post(boxTick);
   }
-  @Override protected void onDestroy(){boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
+  @Override protected void onDestroy(){foreground=false;adGeneration++;if(adNext!=null)controlHandler.removeCallbacks(adNext);adNext=null;adView=null;adBitmap=null;adSlides=new ArrayList<>();boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
   private String playbackAccount(){return client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";}
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
   @Override public boolean dispatchKeyEvent(KeyEvent event){if(awaitingLiveRecoveryChoice&&liveTransportKey(event.getKeyCode()))return true;if(playing&&episodeController!=null&&event.getKeyCode()==KeyEvent.KEYCODE_MEDIA_NEXT){if(event.getAction()==KeyEvent.ACTION_DOWN)episodeController.nextNow();return true;}if(playing&&episodeEndView==null&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}
