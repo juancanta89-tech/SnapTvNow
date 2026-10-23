@@ -70,14 +70,15 @@ public class LivePlayerReplacementTest {
     verify(oldPlayer).release();verify(newPlayer).setTrackSelectionParameters(tracks);verify(newPlayer).setPlayWhenReady(false);verify(newPlayer,never()).play();verify(newPlayer).prepare();assertSame(channel,field("currentItem"));
   }
   @Test public void healthyChannelCleanupReusesPlayerButDetachesOldListenersAndStopsOldSource()throws Exception{
-    PlaybackTransferHub hub=new PlaybackTransferHub();field("transferHub",hub);field("playbackTransfer",hub.begin());
+    PlaybackTransfer original=new PlaybackTransfer();field("playbackTransfer",original);
+    androidx.media3.exoplayer.video.VideoFrameMetadataListener frame=mock(androidx.media3.exoplayer.video.VideoFrameMetadataListener.class);field("liveFrameListener",frame);
     androidx.media3.common.Player.Listener previous=mock(androidx.media3.common.Player.Listener.class);field("playbackListener",previous);
     Method cleanup=MainActivity.class.getDeclaredMethod("releaseVideo",boolean.class);cleanup.setAccessible(true);cleanup.invoke(activity,true);
-    InOrder order=inOrder(oldPlayer);order.verify(oldPlayer).removeListener(previous);order.verify(oldPlayer).clearVideoFrameMetadataListener();order.verify(oldPlayer).stop();order.verify(oldPlayer).clearMediaItems();
-    verify(oldPlayer,never()).release();assertSame(oldPlayer,field("video"));assertNotNull(field("playbackTransfer"));assertNull(field("playbackListener"));
+    InOrder order=inOrder(oldPlayer);order.verify(oldPlayer).removeListener(previous);order.verify(oldPlayer).clearVideoFrameMetadataListener(frame);order.verify(oldPlayer).stop();order.verify(oldPlayer).clearMediaItems();
+    verify(oldPlayer,never()).release();assertSame(oldPlayer,field("video"));assertNotNull(field("playbackTransfer"));assertNotSame(original,field("playbackTransfer"));assertNull(field("playbackListener"));
   }
   @Test public void decoderErrorAndVodCannotUseHealthyLiveReuse()throws Exception{
-    field("transferHub",new PlaybackTransferHub());field("playerCompatibleAudio",true);Method account=MainActivity.class.getDeclaredMethod("playbackAccount");account.setAccessible(true);field("playerAccount",account.invoke(activity));
+    field("playbackTransfer",new PlaybackTransfer());field("playerCompatibleAudio",true);Method account=MainActivity.class.getDeclaredMethod("playbackAccount");account.setAccessible(true);field("playerAccount",account.invoke(activity));
     Method allowed=MainActivity.class.getDeclaredMethod("canReuseLivePlayer",Catalog.Item.class);allowed.setAccessible(true);
     assertTrue((Boolean)allowed.invoke(activity,channel));
     when(oldPlayer.getPlayerError()).thenReturn(new androidx.media3.common.PlaybackException("fixture",null,androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED));assertFalse((Boolean)allowed.invoke(activity,channel));
