@@ -15,8 +15,9 @@ public class AdaptiveLiveBufferTest {
   AdaptiveLiveBuffer b=new AdaptiveLiveBuffer();
   androidx.media3.exoplayer.analytics.PlayerId id=androidx.media3.exoplayer.analytics.PlayerId.UNSET;
   b.onPrepared(id);b.stalled(1000);b.stalled(3000);b.stalled(5000);b.stalled(7000);
-  androidx.media3.exoplayer.source.MediaSource.MediaPeriodId period=new androidx.media3.exoplayer.source.MediaSource.MediaPeriodId(new Object());
-  java.util.function.BiFunction<Long,Boolean,androidx.media3.exoplayer.LoadControl.Parameters> params=(duration,rebuffer)->new androidx.media3.exoplayer.LoadControl.Parameters(id,androidx.media3.common.Timeline.EMPTY,period,0,duration,1f,true,rebuffer,androidx.media3.common.C.TIME_UNSET,androidx.media3.common.C.TIME_UNSET);
+  androidx.media3.common.Timeline timeline=new androidx.media3.exoplayer.source.SinglePeriodTimeline(60000000L,true,false,false,null,androidx.media3.common.MediaItem.fromUri("https://example.invalid/channel.ts"));
+  androidx.media3.exoplayer.source.MediaSource.MediaPeriodId period=new androidx.media3.exoplayer.source.MediaSource.MediaPeriodId(timeline.getUidOfPeriod(0));
+  java.util.function.BiFunction<Long,Boolean,androidx.media3.exoplayer.LoadControl.Parameters> params=(duration,rebuffer)->new androidx.media3.exoplayer.LoadControl.Parameters(id,timeline,period,0,duration,1f,true,rebuffer,androidx.media3.common.C.TIME_UNSET,androidx.media3.common.C.TIME_UNSET);
   assertTrue(b.shouldStartPlayback(params.apply(1000000L,false)));
   assertFalse(b.shouldStartPlayback(params.apply(4000000L,true)));
   assertTrue(b.shouldStartPlayback(params.apply(8000000L,true)));

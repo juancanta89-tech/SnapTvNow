@@ -83,6 +83,7 @@ public class LivePlayerReplacementTest {
     assertTrue((Boolean)allowed.invoke(activity,channel));
     when(oldPlayer.getPlayerError()).thenReturn(androidx.media3.exoplayer.ExoPlaybackException.createForUnexpected(new RuntimeException("fixture"),androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED));assertFalse((Boolean)allowed.invoke(activity,channel));
     when(oldPlayer.getPlayerError()).thenReturn(null);assertFalse((Boolean)allowed.invoke(activity,new Catalog.Item("movie1","Movie","Películas","https://example.invalid/movie.mp4","")));
+    field("livePlayerFailed",true);assertFalse((Boolean)allowed.invoke(activity,channel));field("livePlayerFailed",false);
     field("awaitingLiveRecoveryChoice",true);assertFalse((Boolean)allowed.invoke(activity,channel));
   }
 

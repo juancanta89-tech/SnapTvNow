@@ -93,6 +93,7 @@ public class MainActivity extends Activity {
   private AdaptiveLiveBuffer adaptiveLiveBuffer;
   private boolean playerCompatibleAudio;
   private String playerAccount;
+  private boolean livePlayerFailed;
   private PlayerView playerView;
   private FrameLayout playerControls;
   private final android.os.Handler controlHandler=new android.os.Handler(android.os.Looper.getMainLooper());
@@ -933,6 +934,7 @@ public class MainActivity extends Activity {
       if(findingOnline){findingOnline=false;View searching=stage.findViewWithTag("searching");if(searching!=null)stage.removeView(searching);}
     }@Override public void onPlayerError(PlaybackException error){
       if(!playing||currentItem!=item||video!=activePlayer)return;
+      if(!vod)livePlayerFailed=true;
       if(findingOnline)controlHandler.post(()->{if(playing&&findingOnline&&currentItem==item)tryNextOnline(item);});
       else if(vod&&(vodSession==null||!vodSession.recover(error)))unavailable(stage,item,null);
     }};video.addListener(playbackListener);
@@ -987,7 +989,7 @@ public class MainActivity extends Activity {
   }
   private boolean canReuseLivePlayer(Catalog.Item next){
     return playing&&!awaitingLiveRecoveryChoice&&video!=null&&playbackTransfer!=null&&currentItem!=null
-        &&currentItem.id.startsWith("live")&&next.id.startsWith("live")&&video.getPlayerError()==null
+        &&currentItem.id.startsWith("live")&&next.id.startsWith("live")&&video.getPlayerError()==null&&!livePlayerFailed
         &&java.util.Objects.equals(playerAccount,playbackAccount())
         &&playerCompatibleAudio==(prefs==null||prefs.getBoolean(AudioRenderersFactory.COMPATIBLE_KEY,true));
   }
@@ -1001,7 +1003,7 @@ public class MainActivity extends Activity {
     return data;
   }
   ExoPlayer createPlayer(){
-    playbackTransfer=new PlaybackTransfer();
+    playbackTransfer=new PlaybackTransfer();livePlayerFailed=false;
     boolean compatible=currentItem!=null&&currentItem.id.startsWith("live")&&(prefs==null||prefs.getBoolean(AudioRenderersFactory.COMPATIBLE_KEY,true));
     playerCompatibleAudio=compatible;playerAccount=playbackAccount();
     boolean live=currentItem!=null&&currentItem.id.startsWith("live");
@@ -1016,6 +1018,7 @@ public class MainActivity extends Activity {
     if(audioDiagnostics!=null)audioDiagnostics.close();audioDiagnostics=new LiveAudioDiagnostics(activePlayer);
     liveRecovery=new LivePlaybackRecovery(activePlayer,liveRetries,playbackTransfer,reason->{
       if(!playing||currentItem!=item||video!=activePlayer)return;
+      livePlayerFailed=true;
       if(findingOnline){tryNextOnline(item);return;}
       android.util.Log.w("LiveRecovery",reason); // No stream URL, account or credentials in logs.
       if(liveRetries.recoveryRequests>3&&showLiveRecoveryOptions(item,activePlayer))return;
@@ -1063,7 +1066,7 @@ public class MainActivity extends Activity {
     if(!(found instanceof FrameLayout))return false;
     FrameLayout stage=(FrameLayout)found;
     if(stage.findViewWithTag("live_recovery_options")!=null)return true;
-    awaitingLiveRecoveryChoice=true;
+    awaitingLiveRecoveryChoice=true;livePlayerFailed=true;
     if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
     expected.pause();
     if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}
