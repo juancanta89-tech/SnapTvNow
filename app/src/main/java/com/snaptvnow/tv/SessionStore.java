@@ -19,9 +19,10 @@ final class SessionStore {
   private static final String PREF="subscriber_session";
   private static final String DATA="encrypted_session";
 
-  static void save(Context context,String username,String password,String expires,String maxConnections) throws Exception {
-    JSONObject value=new JSONObject();value.put("username",username);value.put("password",password);
-    value.put("expires",expires);value.put("maxConnections",maxConnections);
+  static void save(Context context,XtreamClient client) throws Exception {
+    JSONObject value=new JSONObject();value.put("username",client.username());value.put("password",client.password());
+    value.put("expires",client.expires);value.put("maxConnections",client.maxConnections);
+    if(client.server()!=null)value.put("server",AppConfig.validate(client.server()));
     Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key());
     byte[] encrypted=cipher.doFinal(value.toString().getBytes(StandardCharsets.UTF_8));
     JSONObject record=new JSONObject();record.put("iv",Base64.encodeToString(cipher.getIV(),Base64.NO_WRAP));
@@ -40,8 +41,14 @@ final class SessionStore {
       Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
       cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,iv));
       JSONObject value=new JSONObject(new String(cipher.doFinal(Base64.decode(record.getString("payload"),Base64.DEFAULT)),StandardCharsets.UTF_8));
-      return new XtreamClient(value.getString("username"),value.getString("password"),value.optString("expires"),value.optString("maxConnections"));
+      return decode(value,AppConfig.savedWorking(context));
     }catch(Exception e){clear(context);return null;}
+  }
+
+  static XtreamClient decode(JSONObject value,String legacyServer) throws Exception {
+    String server=value.optString("server",legacyServer);
+    if(server!=null)try{server=AppConfig.validate(server);}catch(Exception invalid){server=null;}
+    return new XtreamClient(server,value.getString("username"),value.getString("password"),value.optString("expires"),value.optString("maxConnections"));
   }
 
   static void clear(Context context){context.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().remove(DATA).commit();}

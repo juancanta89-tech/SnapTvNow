@@ -45,4 +45,19 @@ public class SessionRecoveryTest {
     SessionRecovery.Result r=SessionRecovery.reconnect(null,SERVERS,(account,servers)->{fail("No saved credentials");return null;},verified->fail("No verified account"));
     assertNull(r.client);assertNull(r.message);
   }
+  @Test public void encryptedSessionPayloadRestoresItsOwnServerInsteadOfTheGlobalDefault()throws Exception{
+    XtreamClient.SERVER=SERVERS.get(0);
+    org.json.JSONObject payload=new org.json.JSONObject().put("username","synthetic-client").put("password","synthetic-password").put("server",SERVERS.get(1));
+    XtreamClient restored=SessionStore.decode(payload,SERVERS.get(0));assertEquals(SERVERS.get(1),restored.server());
+    assertEquals(Arrays.asList(SERVERS.get(1),SERVERS.get(0)),XtreamClient.reconnectServers(SERVERS,restored.server()));
+    assertEquals(SERVERS,XtreamClient.reconnectServers(SERVERS,"https://removed.invalid"));assertEquals(SERVERS,Arrays.asList("https://first.example","https://second.example"));
+  }
+  @Test public void legacyEncryptedSessionUsesThePreviouslyWorkingServerAndKeepsHistoryAfterRevalidation()throws Exception{
+    XtreamClient.SERVER=SERVERS.get(0);org.json.JSONObject payload=new org.json.JSONObject().put("username","synthetic-client").put("password","synthetic-password");
+    XtreamClient restored=SessionStore.decode(payload,SERVERS.get(1));
+    String before=AccountFavorites.scope(restored.server(),restored.username());PlaybackHistory history=new PlaybackHistory(org.robolectric.RuntimeEnvironment.getApplication());history.save(before,"episode77",929000,4895000,true);
+    SessionRecovery.Result result=SessionRecovery.reconnect(restored,SERVERS,(account,enabled)->XtreamClient.attemptLogin(XtreamClient.reconnectServers(enabled,account.server()),account.username(),account.password(),(server,user,password)->{assertEquals(SERVERS.get(1),server);return ACTIVE;},null),verified->{});
+    assertNotNull(result.client);assertEquals(before,AccountFavorites.scope(result.client.server(),result.client.username()));assertEquals(929000,history.position(before,"episode77"));
+  }
+
 }

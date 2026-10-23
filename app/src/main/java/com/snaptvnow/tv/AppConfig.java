@@ -52,6 +52,13 @@ final class AppConfig {
       List<String> own=new ArrayList<>();own.add("https://api.snaptvnow.com");return own;
     }
   }
+  static String savedWorking(Context context){return context.getSharedPreferences(PREF,Context.MODE_PRIVATE).getString(WORKING,null);}
+  static List<String> savedServers(Context context){
+    SharedPreferences prefs=context.getSharedPreferences(PREF,Context.MODE_PRIVATE);List<String> servers=new ArrayList<>();
+    try{servers.addAll(parseServers(new JSONArray(prefs.getString(SERVERS,"[]"))));}catch(Exception ignored){}
+    String last=savedWorking(context);if(last!=null&&!servers.contains(last))try{servers.add(validate(last));}catch(Exception ignored){}
+    return servers;
+  }
   static void rememberWorking(Context context,String server){context.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(WORKING,server).apply();}
   static String lastWorking(Context context,List<String> servers){
     if(servers.isEmpty())throw new IllegalStateException("No hay servidores habilitados");

@@ -30,7 +30,7 @@ final class PlaybackHistory {
   }
 
   /** Metadata contains IDs and names only; playback URLs are resolved with the current login. */
-  void remember(String account, Catalog.Item item) {
+  synchronized void remember(String account, Catalog.Item item) {
     if(!item.id.startsWith("movie")&&!item.id.startsWith("episode"))return;
     try {
       String extension=android.net.Uri.parse(item.url).getLastPathSegment();
@@ -46,7 +46,7 @@ final class PlaybackHistory {
     }catch(Exception ignored){ /* A malformed optional title must not interrupt playback. */ }
   }
 
-  void save(String account, String contentId, long position, long duration, boolean flush) {
+  synchronized void save(String account, String contentId, long position, long duration, boolean flush) {
     if (position < 0) return;
     String key = key(account, contentId);
     SharedPreferences.Editor editor = preferences.edit().putLong(key + ".position", position)
@@ -56,13 +56,13 @@ final class PlaybackHistory {
     if (flush) editor.commit(); else editor.apply();
   }
 
-  void complete(String account, String contentId) {
+  synchronized void complete(String account, String contentId) {
     String key = key(account, contentId);
     preferences.edit().remove(key + ".position").putBoolean(key+".completed",true)
         .putLong(key+".updated",nextTime()).commit();
   }
 
-  void reset(String account,String contentId){
+  synchronized void reset(String account,String contentId){
     String key=key(account,contentId);
     preferences.edit().remove(key+".position").remove(key+".duration")
         .putBoolean(key+".completed",false).putLong(key+".updated",nextTime()).commit();
@@ -70,10 +70,10 @@ final class PlaybackHistory {
 
   boolean completed(String account,String contentId){return preferences.getBoolean(key(account,contentId)+".completed",false);}
 
-  /** Older builds stored movie positions without titles. Add titles when their catalog is loaded. */
-  void rememberBookmarks(String account,List<Catalog.Item> items){
+  /** Backfill titles for older position-only bookmarks when their catalog is loaded. */
+  synchronized void rememberBookmarks(String account,List<Catalog.Item> items){
     for(Catalog.Item item:items){
-      if(!item.id.startsWith("movie"))continue;
+      if(!item.id.startsWith("movie")&&!item.id.startsWith("episode"))continue;
       String key=key(account,item.id);
       long position=preferences.getLong(key+".position",0),duration=preferences.getLong(key+".duration",0);
       if(position<=0||duration>0&&position>=duration||preferences.contains(key+".metadata"))continue;
@@ -87,7 +87,7 @@ final class PlaybackHistory {
   static String artworkKey(String account,Catalog.Item item){return key(account,"cover:"+group(item));}
 
   /** Hide the whole title, leaving every chapter bookmark and completion flag untouched. */
-  void removeFromContinue(String account,Entry entry){
+  synchronized void removeFromContinue(String account,Entry entry){
     recent(account); // First persist any capacity evictions, so older titles cannot backfill.
     preferences.edit().putLong(key(account,"hidden:"+group(entry.item)),nextTime()).commit();
   }
@@ -107,7 +107,7 @@ final class PlaybackHistory {
   }
 
   List<Entry> recent(String account){return recent(account,Kind.ALL);}
-  List<Entry> recent(String account,Kind kind){
+  synchronized List<Entry> recent(String account,Kind kind){
     List<Entry> recent=new ArrayList<>();Set<String> groups=new HashSet<>();int movies=0,series=0;
     SharedPreferences.Editor evictions=preferences.edit();boolean changed=false;
     for(Entry entry:allEntries(account)){
@@ -148,9 +148,37 @@ final class PlaybackHistory {
     return entries;
   }
 
+  /** Read-only recovery candidates. Hidden titles and capacity evictions stay hidden. */
+  List<Entry> recoveryEntries(String account){
+    List<Entry> out=new ArrayList<>();Set<String> groups=new HashSet<>();int movies=0,series=0;
+    for(Entry entry:allEntries(account)){
+      String group=group(entry.item);if(!groups.add(group)||entry.updated<=preferences.getLong(key(account,"hidden:"+group),0))continue;
+      if(entry.item.id.startsWith("movie")){if(movies++>=CONTINUE_LIMIT)continue;}else if(series++>=CONTINUE_LIMIT)continue;
+      out.add(entry);
+    }
+    return out;
+  }
+  synchronized boolean restoreVerified(String target,Entry entry,Catalog.Item verified){
+    String k=key(target,verified.id);
+    if(updated(target,verified.id)>=entry.updated||preferences.getLong(key(target,"hidden:"+group(verified)),0)>=entry.updated)return false;
+    remember(target,verified);
+    return preferences.edit().putLong(k+".position",entry.position).putLong(k+".duration",entry.duration)
+        .putLong(k+".updated",entry.updated).putBoolean(k+".completed",entry.completed).commit();
+  }
+  synchronized boolean restoreLegacyPosition(String source,String target,Catalog.Item verified){
+    String old=key(source,verified.id),next=key(target,verified.id);
+    if(preferences.contains(old+".metadata")||preferences.contains(next+".updated")||preferences.contains(next+".position"))return false;
+    long position=position(source,verified.id);if(position<=0)return false;
+    long at=Math.max(1,preferences.getLong(old+".updated",1));
+    if(preferences.getLong(key(target,"hidden:"+group(verified)),0)>=at)return false;
+    remember(target,verified);
+    return preferences.edit().putLong(next+".position",position).putLong(next+".duration",duration(source,verified.id))
+        .putLong(next+".updated",at).putBoolean(next+".completed",false).commit();
+  }
+
   long updated(String account,String id){return preferences.getLong(key(account,id)+".updated",0);}
   long duration(String account,String id){return preferences.getLong(key(account,id)+".duration",0);}
-  void applyRemote(String account,Catalog.Item item,JSONObject row){
+  synchronized void applyRemote(String account,Catalog.Item item,JSONObject row){
     if(item.profile==null||row==null||row.optLong("updatedAt")<=updated(account,item.id))return;
     if(!item.profile.episodeId.isEmpty()&&!row.optBoolean("deleted")&&!item.profile.episodeId.equals(row.optString("episodeId")))return;
     remember(account,item);String k=key(account,item.id);SharedPreferences.Editor edit=preferences.edit().putLong(k+".updated",row.optLong("updatedAt")).putBoolean(k+".completed",false);

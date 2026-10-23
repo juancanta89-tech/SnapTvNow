@@ -137,13 +137,16 @@ public class MainActivity extends Activity {
   private TrackSelectionParameters resumeTrackParameters;
   private AccountFavorites accountFavorites;
   private NativeProfileSync nativeProfile;
+  private LocalHistoryRecovery historyRecovery;
+  private XtreamClient historyRecoveryClient;
+  private boolean historyRestoring,historyRecoveryAttempted;
   private String favoriteAccount="";
   private int profileGeneration,loginRequest;
   private Runnable profileTick;
   private boolean profileHydrating;
   private final java.util.Set<String> hydratedProfiles=new java.util.HashSet<>();
   private void bindProfile(){
-    closeProfile();favoriteAccount=client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
+    closeProfile();if(historyRecoveryClient!=client){historyRecovery=null;historyRecoveryAttempted=false;historyRestoring=false;}favoriteAccount=client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
     final int generation=profileGeneration;
     nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;applyProfiles();if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();}));
     if(nativeProfile!=null){nativeProfile.refresh();profileTick=new Runnable(){int ticks;public void run(){if(generation!=profileGeneration||nativeProfile==null)return;if(vodSession!=null){vodSession.saveNow();nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(++ticks%8==0)nativeProfile.refresh();controlHandler.postDelayed(this,15000);}};controlHandler.postDelayed(profileTick,15000);}
@@ -202,7 +205,7 @@ public class MainActivity extends Activity {
         XtreamClient.SERVER=AppConfig.lastWorking(this,servers);
         SessionRecovery.Result recovery=SessionRecovery.reconnect(saved,servers,
           (account,enabledServers)->account.reconnect(enabledServers),
-          verified->SessionStore.save(this,verified.username(),verified.password(),verified.expires,verified.maxConnections));
+          verified->SessionStore.save(this,verified));
         restored=recovery.client;recoveryMessage=recovery.message;
         if(restored!=null)AppConfig.rememberWorking(this,restored.server());
         else XtreamClient.SERVER=servers.get(0);
@@ -211,7 +214,7 @@ public class MainActivity extends Activity {
       runOnUiThread(()->{
         if(isFinishing()||isDestroyed())return;
         if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();if(problem!=null||!BoxPanel.authorized()){showBoxBlocked();return;}}
-        savedSessionAvailable=saved!=null;client=resolved;logged=client!=null;if(client!=null)XtreamClient.SERVER=client.server();bindProfile();
+        savedSessionAvailable=saved!=null;client=resolved;logged=client!=null;if(client!=null)XtreamClient.SERVER=client.server();bindProfile();prepareHistoryRecovery(saved,client);
         if(logged)items=new ArrayList<>();
         for(Catalog.Item i:items)seen.put(i.id,i);
         render();
@@ -387,7 +390,7 @@ public class MainActivity extends Activity {
         if(request==loginRequest&&!isFinishing()&&!isDestroyed()&&loginStatus!=null){loginStatus.setText("Probando servidor "+number+" de "+total+"…");loginStatus.setVisibility(View.VISIBLE);}
       }));
       runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;try{
-        SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();
+        SessionStore.save(this,connected);AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();
         savedSessionAvailable=true;client=connected;seen.clear();recentlyPlayed.clear();bindProfile();items=new ArrayList<>();loadedSection="";activeGroup=null;activeGroupSection="";logged=true;section="Inicio";render();checkDirectMessage();loadAdvertisement();
       }catch(Exception e){new AlertDialog.Builder(this).setTitle("No se pudo guardar la sesión").setMessage("Vuelve a iniciar sesión.").setPositiveButton("Aceptar",null).show();}});
     }catch(Exception e){runOnUiThread(()->{if(request!=loginRequest||isFinishing()||isDestroyed())return;if(loginStatus!=null)loginStatus.setVisibility(View.GONE);new AlertDialog.Builder(this).setTitle("No se pudo conectar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
@@ -470,7 +473,7 @@ public class MainActivity extends Activity {
         if(candidate.name.equalsIgnoreCase(group.name)){matched=candidate;break;}
       List<Catalog.Item> updated=matched!=null?connected.loadCategory(category,matched.id,matched.name):new ArrayList<>();
       final XtreamClient.Group newGroup=matched;
-      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;try{SessionStore.save(this,connected.username(),connected.password(),connected.expires,connected.maxConnections);}catch(Exception e){refreshing=false;Toast.makeText(this,"No se pudo guardar la sesión actualizada.",Toast.LENGTH_LONG).show();return;}AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();client=connected;bindProfile();items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
+      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;try{SessionStore.save(this,connected);}catch(Exception e){refreshing=false;Toast.makeText(this,"No se pudo guardar la sesión actualizada.",Toast.LENGTH_LONG).show();return;}AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();client=connected;bindProfile();prepareHistoryRecovery(session,connected);items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
         searchIndex=null;searchClient=null;activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
         if(refreshButton!=null){refreshButton.setText("100% actualizado");TextView finished=refreshButton;controlHandler.postDelayed(()->{if(refreshButton==finished)finished.setText("Actualizar contenido");},2200);}
       });
@@ -535,10 +538,35 @@ public class MainActivity extends Activity {
       runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;exclusiveLoading=false;exclusiveLoaded=true;exclusiveError=loaded==null?"No se pudo cargar la selección. Pulsa Actualizar para reintentar.":"";if(loaded!=null){exclusiveItems=new ArrayList<>(loaded);for(Catalog.Item item:loaded){seen.put(item.id,item);applyProfile(item);}accountFavorites.save(favoriteAccount,favorites);}if(!playing&&section.equals(ExclusiveCatalog.SECTION))render();});
     }).start();
   }
+  private void prepareHistoryRecovery(XtreamClient previous,XtreamClient verified){
+    if(previous==null||verified==null)return;
+    List<String> sources=AppConfig.savedServers(this);if(previous.server()!=null&&!sources.contains(previous.server()))sources.add(previous.server());
+    historyRecovery=LocalHistoryRecovery.verified(previous.username(),previous.password(),verified.username(),verified.password(),verified.server(),sources);
+    historyRecoveryClient=verified;historyRecoveryAttempted=false;
+  }
+  private void recoverLocalHistory(){
+    if(historyRecovery==null||historyRestoring||client==null)return;
+    final XtreamClient session=client;final LocalHistoryRecovery recovery=historyRecovery;final int generation=profileGeneration;
+    historyRestoring=true;historyRecoveryAttempted=true;
+    new Thread(()->{int restored=0;boolean complete=true;try{
+      restored=recovery.recover(playbackHistory,new LocalHistoryRecovery.Source(){
+        public List<Catalog.Item> movies()throws Exception{return session.loadAll(CatalogSearch.Scope.MOVIES);}
+        public List<Catalog.Item> series()throws Exception{return session.loadAll(CatalogSearch.Scope.SERIES);}
+        public List<Catalog.Item> episodes(Catalog.Item parent)throws Exception{return session.episodes(parent);}
+      });
+    }catch(Exception unavailable){complete=false;}
+    final int count=restored;final boolean success=complete;
+    runOnUiThread(()->{if(client!=session||historyRecovery!=recovery||generation!=profileGeneration||isFinishing()||isDestroyed())return;
+      historyRestoring=false;
+      Toast.makeText(this,!success?"No se pudo completar la recuperación. El historial original se conserva; puedes reintentar.":count>0?"Progreso recuperado: "+count+" títulos":"No se encontraron más títulos coincidentes. El historial original se conserva.",Toast.LENGTH_LONG).show();
+      if(!playing&&section.equals("Continuar viendo"))render();
+    });}).start();
+  }
   private void continueWatching(boolean preview){
-    if(!preview)hydrateProfiles();
+    if(!preview){hydrateProfiles();if(historyRecovery!=null&&!historyRecoveryAttempted&&playbackHistory.recent(playbackAccount()).isEmpty()&&historyRecovery.available(playbackHistory))recoverLocalHistory();}
     if(preview||!television())title("Continuar viendo");
     if(!preview){
+      if(historyRecovery!=null){TextView recover=action(historyRestoring?"Recuperando progreso…":"Recuperar historial guardado",this::recoverLocalHistory);recover.setEnabled(!historyRestoring);body.addView(recover);gap(body,10);}
       if(nativeProfile!=null){body.addView(action("Actualizar progreso",()->{hydratedProfiles.clear();nativeProfile.refresh();hydrateProfiles();}));gap(body,10);}
       List<PlaybackHistory.Entry> all=playbackHistory.recent(playbackAccount());int movies=0;for(PlaybackHistory.Entry entry:all)if(entry.item.id.startsWith("movie"))movies++;
       LinearLayout filters=new LinearLayout(this);body.addView(filters);String[] names={"Todo · "+all.size(),"Películas · "+movies,"Series · "+(all.size()-movies)};PlaybackHistory.Kind[] kinds=PlaybackHistory.Kind.values();
@@ -713,6 +741,8 @@ public class MainActivity extends Activity {
         if(client!=session||body!=origin||playing||isFinishing()||isDestroyed())return;
         if(episodes.isEmpty()){Toast.makeText(this,"Sin episodios disponibles",Toast.LENGTH_LONG).show();return;}
         episodeQueue=new ArrayList<>(episodes);episodeQueueSeries=item.id;episodeQueueClient=session;
+        if(historyRecovery!=null)historyRecovery.restoreLoadedLegacy(playbackHistory,episodes);
+        playbackHistory.rememberBookmarks(playbackAccount(),episodes);
         int recommended=EpisodeSelection.recommended(episodes,playbackHistory,playbackAccount());
         Catalog.Item next=episodes.get(recommended);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(item.title)

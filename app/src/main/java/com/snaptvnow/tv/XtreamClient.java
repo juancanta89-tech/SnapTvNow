@@ -18,7 +18,7 @@ public final class XtreamClient {
   private final String username,password,sourceServer;
   public final String expires,maxConnections;
   public XtreamClient(String username,String password,String expires,String maxConnections){this(SERVER,username,password,expires,maxConnections);}
-  private XtreamClient(String server,String username,String password,String expires,String maxConnections){this.sourceServer=server;this.username=username;this.password=password;this.expires=expires;this.maxConnections=maxConnections;}
+  XtreamClient(String server,String username,String password,String expires,String maxConnections){this.sourceServer=server;this.username=username;this.password=password;this.expires=expires;this.maxConnections=maxConnections;}
   String username(){return username;}
   String password(){return password;}
   String server(){return sourceServer;}
@@ -74,7 +74,12 @@ public final class XtreamClient {
     if(denied&&!rejected)throw new Exception("Los servidores rechazaron el acceso. Contacta a tu administrador.");
     throw new Exception(rejected?"Ningún servidor aceptó esta línea. Revisa el usuario y la contraseña.":"No se encontró un servidor disponible. Inténtalo de nuevo.");
   }
-  public XtreamClient reconnect(List<String> servers) throws Exception {return loginAny(servers,username,password);}
+  public XtreamClient reconnect(List<String> servers) throws Exception {return loginAny(reconnectServers(servers,sourceServer),username,password);}
+  static List<String> reconnectServers(List<String> enabled,String previous){
+    List<String> ordered=new ArrayList<>(enabled);
+    if(previous!=null&&ordered.remove(previous))ordered.add(0,previous);
+    return ordered;
+  }
   public static final class Group {public final String id,name;public Group(String id,String name){this.id=id;this.name=name;}}
   public List<Group> categories(String section) throws Exception {
     String action=section.equals("Películas")?"get_vod_categories":section.equals("Series")?"get_series_categories":"get_live_categories";
