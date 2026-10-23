@@ -26,6 +26,7 @@ final class AdaptiveLiveBuffer extends DefaultLoadControl {
     if(!p.rebuffering)return super.shouldStartPlayback(p);
     long reserve=resumeMs*1000L;
     if(p.targetLiveOffsetUs!=C.TIME_UNSET)reserve=Math.min(reserve,p.targetLiveOffsetUs/2);
-    return super.shouldStartPlayback(p)&&Util.getPlayoutDurationForMediaDuration(p.bufferedDurationUs,p.playbackSpeed)>=reserve;
+    return super.shouldStartPlayback(p)&&(Util.getPlayoutDurationForMediaDuration(p.bufferedDurationUs,p.playbackSpeed)>=reserve
+        ||getAllocator(p.playerId).getTotalBytesAllocated()>=32*1024*1024);
   }
 }

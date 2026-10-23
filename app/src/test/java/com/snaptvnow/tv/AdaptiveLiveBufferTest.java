@@ -11,4 +11,20 @@ public class AdaptiveLiveBufferTest {
   b.stalled(3000);assertEquals(5000,b.resumeMs());b.stalled(5000);assertEquals(7000,b.resumeMs());b.stalled(7000);assertEquals(8000,b.resumeMs());b.stalled(9000);assertEquals(8000,b.resumeMs());
   b.healthy(10000);b.healthy(130000);assertEquals(7000,b.resumeMs());b.stalled(260000);assertEquals(3000,b.resumeMs());
  }
+ @Test public void actualLoadControlKeepsFastStartupAndCannotDeadlockAtItsByteBudget(){
+  AdaptiveLiveBuffer b=new AdaptiveLiveBuffer();
+  androidx.media3.exoplayer.analytics.PlayerId id=androidx.media3.exoplayer.analytics.PlayerId.UNSET;
+  b.onPrepared(id);b.stalled(1000);b.stalled(3000);b.stalled(5000);b.stalled(7000);
+  androidx.media3.exoplayer.source.MediaSource.MediaPeriodId period=new androidx.media3.exoplayer.source.MediaSource.MediaPeriodId(new Object());
+  java.util.function.BiFunction<Long,Boolean,androidx.media3.exoplayer.LoadControl.Parameters> params=(duration,rebuffer)->new androidx.media3.exoplayer.LoadControl.Parameters(id,androidx.media3.common.Timeline.EMPTY,period,0,duration,1f,true,rebuffer,androidx.media3.common.C.TIME_UNSET,androidx.media3.common.C.TIME_UNSET);
+  assertTrue(b.shouldStartPlayback(params.apply(1000000L,false)));
+  assertFalse(b.shouldStartPlayback(params.apply(4000000L,true)));
+  assertTrue(b.shouldStartPlayback(params.apply(8000000L,true)));
+  java.util.List<androidx.media3.exoplayer.upstream.Allocation> allocated=new java.util.ArrayList<>();
+  while(b.getAllocator(id).getTotalBytesAllocated()<32*1024*1024)allocated.add(b.getAllocator(id).allocate());
+  assertTrue(b.shouldStartPlayback(params.apply(4000000L,true)));
+  for(androidx.media3.exoplayer.upstream.Allocation allocation:allocated)b.getAllocator(id).release(allocation);
+  b.onReleased(id);
+ }
+
 }

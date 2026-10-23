@@ -81,7 +81,7 @@ public class LivePlayerReplacementTest {
     field("playbackTransfer",new PlaybackTransfer());field("playerCompatibleAudio",true);Method account=MainActivity.class.getDeclaredMethod("playbackAccount");account.setAccessible(true);field("playerAccount",account.invoke(activity));
     Method allowed=MainActivity.class.getDeclaredMethod("canReuseLivePlayer",Catalog.Item.class);allowed.setAccessible(true);
     assertTrue((Boolean)allowed.invoke(activity,channel));
-    when(oldPlayer.getPlayerError()).thenReturn(new androidx.media3.common.PlaybackException("fixture",null,androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED));assertFalse((Boolean)allowed.invoke(activity,channel));
+    when(oldPlayer.getPlayerError()).thenReturn(androidx.media3.exoplayer.ExoPlaybackException.createForUnexpected(new RuntimeException("fixture"),androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED));assertFalse((Boolean)allowed.invoke(activity,channel));
     when(oldPlayer.getPlayerError()).thenReturn(null);assertFalse((Boolean)allowed.invoke(activity,new Catalog.Item("movie1","Movie","Películas","https://example.invalid/movie.mp4","")));
     field("awaitingLiveRecoveryChoice",true);assertFalse((Boolean)allowed.invoke(activity,channel));
   }
