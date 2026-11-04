@@ -3,6 +3,8 @@ package com.snaptvnow.tv;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.content.Context;
+import android.os.Build;
+import android.security.NetworkSecurityPolicy;
 import android.util.LruCache;
 import android.widget.ImageView;
 import java.io.ByteArrayOutputStream;
@@ -61,11 +63,22 @@ final class Artwork {
     }catch(Exception ignored){}finally{temporary.delete();}
   }
   private static boolean valid(String address){return address!=null&&(address.startsWith("https://")||address.startsWith("http://"));}
+  /** Try encrypted artwork when its original HTTP host is outside this APK's exceptions. */
+  static URL networkUrl(String address) throws java.net.MalformedURLException {
+    URL url=new URL(address);
+    if((!url.getProtocol().equals("http")&&!url.getProtocol().equals("https"))||url.getHost().isEmpty()||url.getUserInfo()!=null)
+      throw new java.net.MalformedURLException("Invalid artwork address");
+    NetworkSecurityPolicy policy=NetworkSecurityPolicy.getInstance();
+    boolean permitted=Build.VERSION.SDK_INT>=24?policy.isCleartextTrafficPermitted(url.getHost()):policy.isCleartextTrafficPermitted();
+    if(url.getProtocol().equals("http")&&!permitted)
+      return new URL("https",url.getHost(),url.getPort()==80?-1:url.getPort(),url.getFile());
+    return url;
+  }
   private static Bitmap load(String address){
     Bitmap stored=cache.get(address);if(stored!=null)return stored;
     HttpURLConnection connection=null;
     try{
-        connection=(HttpURLConnection)new URL(address).openConnection();connection.setConnectTimeout(6000);connection.setReadTimeout(7000);
+        connection=(HttpURLConnection)networkUrl(address).openConnection();connection.setConnectTimeout(6000);connection.setReadTimeout(7000);
         if(connection.getResponseCode()!=200)return null;
         if(connection.getContentLength()>1_500_000)return null;
         ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] block=new byte[8192];int n;

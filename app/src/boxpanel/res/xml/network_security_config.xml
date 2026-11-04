@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Legacy BoxPanel policy, included only for a BoxPanel build by app/build.gradle.
+    Reseller DNS is delivered dynamically and is absent from the APK build job.
+    Keep that existing compatibility separate from SNAPTVNOW's restricted policy.
+    Restricting BoxPanel requires an approved per-APK DNS contract first.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

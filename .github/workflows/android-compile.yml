@@ -16,6 +16,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Verify scoped HTTP policy and BoxPanel isolation
+        run: python3 scripts/test-network-security-config.py
       - uses: actions/checkout@v4
         with:
           repository: mysteriumnetwork/openvpn_dart
@@ -91,6 +93,20 @@ jobs:
           script: |
             bash scripts/test-boxpanel-install.sh
             gradle :app:connectedDebugAndroidTest --no-daemon
+            cp -R app/build/outputs/androidTest-results app/build/androidTest-results-api28
+      - name: Verify HTTPS-only policy on Android 6
+        timeout-minutes: 10
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 23
+          arch: x86_64
+          target: default
+          emulator-boot-timeout: 240
+          disable-animations: true
+          emulator-options: -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none
+          script: |
+            gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.snaptvnow.tv.LegacyNetworkSecurityConfigTest --no-daemon
+            cp -R app/build/outputs/androidTest-results app/build/androidTest-results-api23
       - name: Upload playback test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,6 +117,8 @@ jobs:
             app/build/test-results/testDebugUnitTest/
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
+            app/build/androidTest-results-api28/
+            app/build/androidTest-results-api23/
           if-no-files-found: ignore
           retention-days: 14
       - name: Upload VPN test APK
