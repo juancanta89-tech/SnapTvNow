@@ -1,1 +1,9 @@
-<network-security-config><base-config cleartextTrafficPermitted="true"/></network-security-config>
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false"/>
+    <!-- Exact legacy HTTP hosts from the published app configuration. No subdomains. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">ccf.center</domain>
+        <domain includeSubdomains="false">tv.newplytv.online</domain>
+    </domain-config>
+</network-security-config>
