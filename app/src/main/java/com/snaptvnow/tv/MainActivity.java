@@ -110,6 +110,7 @@ public class MainActivity extends Activity {
   private int browseShown,browseScroll;
   private boolean awaitingLiveRecoveryChoice;
   private boolean awaitingLiveAutoAdvance;
+  private String liveAutoAdvanceStatus;
   private boolean findingOnline;
   private final java.util.Set<String> advanceVisited=new java.util.HashSet<>();
   private int advanceAttempts,advanceLimit;
@@ -874,7 +875,7 @@ public class MainActivity extends Activity {
     return null;
   }
   private void findNextOnline(Catalog.Item from){
-    awaitingLiveAutoAdvance=false;advanceVisited.clear();advanceVisited.add(from.id);
+    awaitingLiveAutoAdvance=false;liveAutoAdvanceStatus=null;advanceVisited.clear();advanceVisited.add(from.id);
     int count=0;for(Catalog.Item candidate:items)if(candidate.id.startsWith("live")
       &&candidate.category.equals(from.category)&&candidate.description.equals(from.description)
       &&candidate.url!=null&&!candidate.url.isEmpty()&&!candidate.id.equals(from.id))count++;
@@ -900,7 +901,7 @@ public class MainActivity extends Activity {
     View view=getWindow().getDecorView().findViewWithTag("player_stage");
     if(view instanceof FrameLayout&&currentItem!=null){
       if(video!=null&&currentItem.id.startsWith("live")){
-        awaitingLiveAutoAdvance=true;livePlayerFailed=true;
+        awaitingLiveAutoAdvance=true;liveAutoAdvanceStatus=status;livePlayerFailed=true;
         if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}video.pause();
         if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}
       }
@@ -967,7 +968,7 @@ public class MainActivity extends Activity {
     final long lifecyclePosition=sameSession&&vod?resumePosition:-1;
     final boolean lifecyclePaused=sameSession&&resumePaused;
     final boolean restoreEpisodeEnd=sameSession&&resumeEpisodeEnded;
-    if(!sameSession){liveRetries=new LivePlaybackRecovery.RetryState();liveMediaUrl=vod?null:liveTransport.preferred(item.url);}
+    if(!sameSession){liveAutoAdvanceStatus=null;liveRetries=new LivePlaybackRecovery.RetryState();liveMediaUrl=vod?null:liveTransport.preferred(item.url);}
     // Flush the OLD item's bookmark while its player and identity still belong together.
     boolean reuse=canReuseLivePlayer(item);
     releaseVideo(reuse);currentItem=item;seen.put(item.id,item);recentlyPlayed.remove(item);recentlyPlayed.add(0,item);playing=true;
@@ -1118,11 +1119,12 @@ public class MainActivity extends Activity {
   private boolean showLiveAutoAdvance(Catalog.Item item,ExoPlayer expected){
     if(!playing||currentItem!=item||video!=expected||isFinishing()||isDestroyed())return false;
     View found=getWindow().getDecorView().findViewWithTag("player_stage");if(!(found instanceof FrameLayout))return false;
+    if(!awaitingLiveAutoAdvance)liveAutoAdvanceStatus=null;
     awaitingLiveAutoAdvance=true;awaitingLiveRecoveryChoice=false;livePlayerFailed=true;
     if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
     expected.pause();if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}
     if(playerView!=null){playerView.setKeepScreenOn(false);playerView.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);}
-    unavailable((FrameLayout)found,item,null);return true;
+    unavailable((FrameLayout)found,item,liveAutoAdvanceStatus);return true;
   }
   private boolean showLiveRecoveryOptions(Catalog.Item item,ExoPlayer expected){
     if(!playing||currentItem!=item||video!=expected||isFinishing()||isDestroyed())return false;

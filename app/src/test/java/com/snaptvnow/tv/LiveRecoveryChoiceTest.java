@@ -66,6 +66,15 @@ public class LiveRecoveryChoiceTest {
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5000));assertSame(third,field("currentItem"));
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5000));assertEquals(false,field("findingOnline"));assertEquals(7,activity.creations);
     Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(2));assertEquals(7,activity.creations);
+    activity.onStop();ExoPlayer restored=player();activity.onStart();verify(restored,never()).prepare();
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5));assertEquals(8,activity.creations);assertEquals(false,field("findingOnline"));
+  }
+  @Test public void readinessWithoutPlaybackDoesNotAcceptACandidate()throws Exception{
+    exhaust();ExoPlayer next=player();Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3000));
+    when(next.getPlaybackState()).thenReturn(Player.STATE_READY);
+    Player.Listener listener=(Player.Listener)field("playbackListener");listener.onPlaybackStateChanged(Player.STATE_READY);assertEquals(true,field("findingOnline"));
+    when(next.isPlaying()).thenReturn(true);listener.onIsPlayingChanged(true);assertEquals(false,field("findingOnline"));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(6000));assertEquals(6,activity.creations);assertSame(target,field("currentItem"));
   }
   @Test public void newerSelectionCancelsTheCountdown()throws Exception{
     exhaust();player();play(target);Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3000));assertSame(target,field("currentItem"));assertEquals(6,activity.creations);
