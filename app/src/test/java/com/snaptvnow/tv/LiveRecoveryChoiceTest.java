@@ -48,12 +48,41 @@ public class LiveRecoveryChoiceTest {
     source=new Catalog.Item("live1","ESPN 1080","TV en vivo","https://example.invalid/live/account/test/1.m3u8","Deportes").withLiveIdentity("7","espn.mx");target=new Catalog.Item("live2","ESPN 720","TV en vivo","https://example.invalid/live/account/test/2.m3u8","Deportes").withLiveIdentity("7","espn.mx");field("items",Arrays.asList(source,target));first=player();play(source);
   }
   @After public void tearDown()throws Exception{Method m=MainActivity.class.getDeclaredMethod("releaseVideo");m.setAccessible(true);m.invoke(activity);((ExecutorService)field("searchExecutor")).shutdownNow();}
-  @Test public void fourthActualFailureStopsReconstructionAndDoesNotSwitchAutomatically()throws Exception{
-    for(int n=1;n<=4;n++){
-      if(n<=3)player();LivePlaybackRecovery r=(LivePlaybackRecovery)field("liveRecovery");r.failure("test_error");Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250L<<(n-1)));
+  private void exhaust()throws Exception{
+    for(int n=1;n<=5;n++){
+      if(n<5)player();((LivePlaybackRecovery)field("liveRecovery")).failure("test_error");
+      Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250L<<(n-1)));
     }
-    assertEquals(4,activity.creations);assertEquals(true,field("awaitingLiveRecoveryChoice"));assertSame(source,field("currentItem"));assertNull(field("liveRecovery"));assertNotNull(button("live_720"));assertTrue(button("live_retry").hasFocus());assertEquals(View.GONE,((FrameLayout)field("playerControls")).getVisibility());
-    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(2));assertEquals(4,activity.creations);assertSame(source,field("currentItem"));
+  }
+  @Test public void fifthFailureCountsDownThenChangesChannelAutomatically()throws Exception{
+    exhaust();assertEquals(5,activity.creations);assertEquals(true,field("awaitingLiveAutoAdvance"));assertSame(source,field("currentItem"));assertNull(field("liveRecovery"));
+    ExoPlayer next=player();Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2999));assertSame(source,field("currentItem"));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1));assertSame(target,field("currentItem"));assertEquals(6,activity.creations);verify(next).prepare();
+  }
+  @Test public void deadCandidatesAreSkippedOnceAndSearchStopsWithoutLooping()throws Exception{
+    Catalog.Item third=new Catalog.Item("live3","Noticias","TV en vivo","https://example.invalid/live/account/test/3.m3u8","Deportes").withLiveIdentity("7","");
+    field("items",Arrays.asList(source,target,third));exhaust();player();player();
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3000));assertSame(target,field("currentItem"));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5000));assertSame(third,field("currentItem"));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(5000));assertEquals(false,field("findingOnline"));assertEquals(7,activity.creations);
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(2));assertEquals(7,activity.creations);
+    activity.onStop();ExoPlayer restored=player();activity.onStart();verify(restored,never()).prepare();
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5));assertEquals(8,activity.creations);assertEquals(false,field("findingOnline"));
+  }
+  @Test public void readinessWithoutPlaybackDoesNotAcceptACandidate()throws Exception{
+    exhaust();ExoPlayer next=player();Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3000));
+    when(next.getPlaybackState()).thenReturn(Player.STATE_READY);
+    Player.Listener listener=(Player.Listener)field("playbackListener");listener.onPlaybackStateChanged(Player.STATE_READY);assertEquals(true,field("findingOnline"));
+    when(next.isPlaying()).thenReturn(true);listener.onIsPlayingChanged(true);assertEquals(false,field("findingOnline"));
+    Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(6000));assertEquals(6,activity.creations);assertSame(target,field("currentItem"));
+  }
+  @Test public void newerSelectionCancelsTheCountdown()throws Exception{
+    exhaust();player();play(target);Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3000));assertSame(target,field("currentItem"));assertEquals(6,activity.creations);
+  }
+  @Test public void backgroundCancelsCountdownAndReturnRestoresItWithoutStartingOldMedia()throws Exception{
+    exhaust();activity.onStop();Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(4000));assertEquals(5,activity.creations);
+    ExoPlayer restored=player();activity.onStart();verify(restored,never()).prepare();assertTrue((boolean)field("awaitingLiveAutoAdvance"));
+    player();Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(3000));assertSame(target,field("currentItem"));
   }
   @Test public void alternativeOnlyPlaysAfterExplicitSelectionAndReleasesOldAudioFirst()throws Exception{
     assertTrue(choice(source,first));ExoPlayer next=player();button("live_720").performClick();assertSame(target,field("currentItem"));assertEquals(false,field("awaitingLiveRecoveryChoice"));org.mockito.InOrder order=inOrder(first,next);order.verify(first).release();order.verify(next).prepare();
@@ -80,3 +109,4 @@ public class LiveRecoveryChoiceTest {
     choice(source,first);ExoPlayer restored=player();activity.onConfigurationChanged(new android.content.res.Configuration(activity.getResources().getConfiguration()));assertNotNull(button("live_720"));verify(restored,never()).prepare();assertTrue(activity.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_MEDIA_PLAY)));verify(restored,never()).play();
   }
 }
+
