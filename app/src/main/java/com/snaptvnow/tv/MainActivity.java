@@ -109,7 +109,9 @@ public class MainActivity extends Activity {
   private String browseKey="",browseFocus="";
   private int browseShown,browseScroll;
   private boolean awaitingLiveRecoveryChoice;
+  private boolean awaitingLiveAutoAdvance;
   private boolean findingOnline;
+  private final java.util.Set<String> advanceVisited=new java.util.HashSet<>();
   private int advanceAttempts,advanceLimit;
 
   private String section="Inicio", query="";
@@ -238,7 +240,7 @@ public class MainActivity extends Activity {
     searchGeneration++;searchScreenGeneration++;
     if(searchDebounce!=null){controlHandler.removeCallbacks(searchDebounce);searchDebounce=null;}
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}adView=null;
-    findingOnline=false;awaitingLiveRecoveryChoice=false;releaseVideo();playing=false;wide=television()||(!logged&&getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE);
+    findingOnline=false;advanceVisited.clear();awaitingLiveAutoAdvance=false;awaitingLiveRecoveryChoice=false;releaseVideo();playing=false;wide=television()||(!logged&&getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE);
     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);getWindow().getDecorView().setSystemUiVisibility(0);
     browseGrid=null;root=col();root.setBackgroundColor(NAVY);
     if(Build.VERSION.SDK_INT>=30){
@@ -872,21 +874,38 @@ public class MainActivity extends Activity {
     return null;
   }
   private void findNextOnline(Catalog.Item from){
+    awaitingLiveAutoAdvance=false;advanceVisited.clear();advanceVisited.add(from.id);
     int count=0;for(Catalog.Item candidate:items)if(candidate.id.startsWith("live")
       &&candidate.category.equals(from.category)&&candidate.description.equals(from.description)
       &&candidate.url!=null&&!candidate.url.isEmpty()&&!candidate.id.equals(from.id))count++;
     advanceLimit=count;advanceAttempts=0;findingOnline=count>0;
-    if(findingOnline)tryNextOnline(from);
+    if(findingOnline)tryNextOnline(from);else unavailableCurrent("No hay más canales disponibles en esta lista");
   }
   private void tryNextOnline(Catalog.Item from){
     if(!findingOnline||advanceAttempts>=advanceLimit){findingOnline=false;unavailableCurrent("No hay más canales disponibles en esta lista");return;}
     Catalog.Item candidate=nextChannel(from);
+    // Never revisit a failed slot or loop forever through duplicate IDs.
+    for(int skipped=0;candidate!=null&&advanceVisited.contains(candidate.id)&&skipped<items.size();skipped++)candidate=nextChannel(candidate);
+    if(candidate!=null&&advanceVisited.contains(candidate.id))candidate=null;
     if(candidate==null){findingOnline=false;unavailableCurrent("No hay más canales disponibles en esta lista");return;}
-    advanceAttempts++;play(candidate);
+    advanceVisited.add(candidate.id);advanceAttempts++;play(candidate);
+  }
+  private void acceptNextOnline(Catalog.Item item,ExoPlayer expected,FrameLayout stage){
+    if(!findingOnline||!playing||currentItem!=item||video!=expected)return;
+    findingOnline=false;advanceVisited.clear();
+    if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}
+    View searching=stage.findViewWithTag("searching");if(searching!=null)stage.removeView(searching);
   }
   private void unavailableCurrent(String status){
     View view=getWindow().getDecorView().findViewWithTag("player_stage");
-    if(view instanceof FrameLayout&&currentItem!=null)unavailable((FrameLayout)view,currentItem,status);
+    if(view instanceof FrameLayout&&currentItem!=null){
+      if(video!=null&&currentItem.id.startsWith("live")){
+        awaitingLiveAutoAdvance=true;livePlayerFailed=true;
+        if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}video.pause();
+        if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}
+      }
+      unavailable((FrameLayout)view,currentItem,status);
+    }
   }
   private void unavailable(FrameLayout stage,Catalog.Item item,String status){
     if(stage.findViewWithTag("unavailable")!=null)return;
@@ -925,7 +944,7 @@ public class MainActivity extends Activity {
     panel.addView(back,new LinearLayout.LayoutParams(d(220),d(48)));back.requestFocus();
   }
   private void showPlayerControls(){
-    if(episodeEndView!=null||awaitingLiveRecoveryChoice)return;
+    if(episodeEndView!=null||awaitingLiveRecoveryChoice||awaitingLiveAutoAdvance)return;
     if(vodSession!=null&&playerView!=null){playerView.showController();return;}
     if(playerControls==null)return;playerControls.setVisibility(View.VISIBLE);
     if(hideControls!=null)controlHandler.removeCallbacks(hideControls);
@@ -943,7 +962,8 @@ public class MainActivity extends Activity {
     final boolean vod=!item.id.startsWith("live");
     final boolean sameSession=playing&&currentItem==item;
     if(!playing)rememberBrowse(item);
-    final boolean restoreLiveChoice=sameSession&&!vod&&awaitingLiveRecoveryChoice;
+    final boolean restoreLiveAutoAdvance=sameSession&&!vod&&awaitingLiveAutoAdvance;
+    final boolean restoreLiveChoice=sameSession&&!vod&&(awaitingLiveRecoveryChoice||restoreLiveAutoAdvance);
     final long lifecyclePosition=sameSession&&vod?resumePosition:-1;
     final boolean lifecyclePaused=sameSession&&resumePaused;
     final boolean restoreEpisodeEnd=sameSession&&resumeEpisodeEnded;
@@ -951,7 +971,7 @@ public class MainActivity extends Activity {
     // Flush the OLD item's bookmark while its player and identity still belong together.
     boolean reuse=canReuseLivePlayer(item);
     releaseVideo(reuse);currentItem=item;seen.put(item.id,item);recentlyPlayed.remove(item);recentlyPlayed.add(0,item);playing=true;
-    awaitingLiveRecoveryChoice=restoreLiveChoice;
+    awaitingLiveRecoveryChoice=restoreLiveChoice&&!restoreLiveAutoAdvance;awaitingLiveAutoAdvance=restoreLiveAutoAdvance;
     wide=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -963,15 +983,14 @@ public class MainActivity extends Activity {
     final PlayerView activeView=playerView;
     if(sameSession && resumeTrackParameters!=null)video.setTrackSelectionParameters(resumeTrackParameters);
     resumeTrackParameters=null;
-    playbackListener=new Player.Listener(){@Override public void onRenderedFirstFrame(){if(!vod&&currentItem==item&&video==activePlayer){liveTransport.rendered(item.url,liveMediaUrl);}}@Override public void onPlaybackStateChanged(int state){
+    playbackListener=new Player.Listener(){@Override public void onRenderedFirstFrame(){if(!vod&&currentItem==item&&video==activePlayer){liveTransport.rendered(item.url,liveMediaUrl);acceptNextOnline(item,activePlayer,stage);}}@Override public void onIsPlayingChanged(boolean isPlaying){if(isPlaying&&activePlayer.getPlaybackState()==Player.STATE_READY)acceptNextOnline(item,activePlayer,stage);}@Override public void onPlaybackStateChanged(int state){
       if(currentItem!=item||video!=activePlayer||!playing)return;
       if(state!=Player.STATE_READY)return;
-      if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}
-      if(findingOnline){findingOnline=false;View searching=stage.findViewWithTag("searching");if(searching!=null)stage.removeView(searching);}
+      if(activePlayer.isPlaying())acceptNextOnline(item,activePlayer,stage);
     }@Override public void onPlayerError(PlaybackException error){
       if(!playing||currentItem!=item||video!=activePlayer)return;
       if(!vod)livePlayerFailed=true;
-      if(findingOnline)controlHandler.post(()->{if(playing&&findingOnline&&currentItem==item)tryNextOnline(item);});
+      if(findingOnline)controlHandler.post(()->{if(playing&&findingOnline&&currentItem==item&&video==activePlayer)tryNextOnline(item);});
       else if(vod&&(vodSession==null||!vodSession.recover(error)))unavailable(stage,item,null);
     }};video.addListener(playbackListener);
     if(!vod&&!restoreLiveChoice)attachLiveRecovery(item,activePlayer);
@@ -1020,11 +1039,11 @@ public class MainActivity extends Activity {
       controlHandler.postDelayed(advanceTimeout,5000);
     }
     if(vod)playerView.requestFocus();else back.requestFocus();showPlayerControls();
-    if(restoreLiveChoice)showLiveRecoveryOptions(item,activePlayer);
+    if(restoreLiveAutoAdvance)showLiveAutoAdvance(item,activePlayer);else if(restoreLiveChoice)showLiveRecoveryOptions(item,activePlayer);
     if(EpisodeQueue.isEpisode(item))setupEpisodePlayback(item,activePlayer,stage,restoreEpisodeEnd);
   }
   private boolean canReuseLivePlayer(Catalog.Item next){
-    return playing&&!awaitingLiveRecoveryChoice&&video!=null&&playbackTransfer!=null&&currentItem!=null
+    return playing&&!awaitingLiveRecoveryChoice&&!awaitingLiveAutoAdvance&&video!=null&&playbackTransfer!=null&&currentItem!=null
         &&currentItem.id.startsWith("live")&&next.id.startsWith("live")&&video.getPlayerError()==null&&!livePlayerFailed
         &&java.util.Objects.equals(playerAccount,playbackAccount())
         &&playerCompatibleAudio==(prefs==null||prefs.getBoolean(AudioRenderersFactory.COMPATIBLE_KEY,true));
@@ -1057,7 +1076,7 @@ public class MainActivity extends Activity {
       livePlayerFailed=true;
       if(findingOnline){tryNextOnline(item);return;}
       android.util.Log.w("LiveRecovery",reason); // No stream URL, account or credentials in logs.
-      if(liveRetries.recoveryRequests>3&&showLiveRecoveryOptions(item,activePlayer))return;
+      if(liveRetries.recoveryRequests>=5&&showLiveAutoAdvance(item,activePlayer))return;
       liveTransport.failed(item.url,liveMediaUrl);
       if(!liveRetries.alternateTransportTried){String alternate=LiveTransportPolicy.alternative(liveMediaUrl);if(alternate!=null){liveRetries.alternateTransportTried=true;liveMediaUrl=alternate;}}
       rebuildLivePlayer(item,activePlayer);
@@ -1081,7 +1100,7 @@ public class MainActivity extends Activity {
     rebuildLivePlayer(item,expected,false);
   }
   private void rebuildLivePlayer(Catalog.Item item,ExoPlayer expected,boolean userAudioChange){
-    if(!playing||awaitingLiveRecoveryChoice||currentItem!=item||video!=expected||playerView==null||!expected.getPlayWhenReady()&&!userAudioChange)return;
+    if(!playing||awaitingLiveRecoveryChoice||awaitingLiveAutoAdvance||currentItem!=item||video!=expected||playerView==null||!expected.getPlayWhenReady()&&!userAudioChange)return;
     boolean resume=expected.getPlayWhenReady();
     TrackSelectionParameters tracks=expected.getTrackSelectionParameters();
     // Keep the existing surface, aspect ratio, controls and TV focus during recovery.
@@ -1095,6 +1114,15 @@ public class MainActivity extends Activity {
     if(tracks!=null)video.setTrackSelectionParameters(tracks);
     ExoPlayer replacement=video;String played=liveMediaUrl;playbackListener=new Player.Listener(){@Override public void onRenderedFirstFrame(){if(currentItem==item&&video==replacement)liveTransport.rendered(item.url,played);}};replacement.addListener(playbackListener);
     video.setMediaItem(liveTransport.mediaItem(item.url,liveMediaUrl));video.setPlayWhenReady(resume);video.prepare();if(resume)video.play();
+  }
+  private boolean showLiveAutoAdvance(Catalog.Item item,ExoPlayer expected){
+    if(!playing||currentItem!=item||video!=expected||isFinishing()||isDestroyed())return false;
+    View found=getWindow().getDecorView().findViewWithTag("player_stage");if(!(found instanceof FrameLayout))return false;
+    awaitingLiveAutoAdvance=true;awaitingLiveRecoveryChoice=false;livePlayerFailed=true;
+    if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}
+    expected.pause();if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}
+    if(playerView!=null){playerView.setKeepScreenOn(false);playerView.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);}
+    unavailable((FrameLayout)found,item,null);return true;
   }
   private boolean showLiveRecoveryOptions(Catalog.Item item,ExoPlayer expected){
     if(!playing||currentItem!=item||video!=expected||isFinishing()||isDestroyed())return false;
@@ -1241,7 +1269,7 @@ public class MainActivity extends Activity {
   @Override protected void onDestroy(){foreground=false;adGeneration++;if(adNext!=null)controlHandler.removeCallbacks(adNext);adNext=null;adView=null;adBitmap=null;adSlides=new ArrayList<>();boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);searchGeneration++;if(searchDebounce!=null)controlHandler.removeCallbacks(searchDebounce);searchExecutor.shutdownNow();releaseVideo();closeProfile();super.onDestroy();}
   private String playbackAccount(){return client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";}
   private void pauseLabel(TextView button,boolean playingNow){button.setText(playingNow?"❚❚":"▶");}
-  @Override public boolean dispatchKeyEvent(KeyEvent event){if(awaitingLiveRecoveryChoice&&liveTransportKey(event.getKeyCode()))return true;if(playing&&episodeController!=null&&event.getKeyCode()==KeyEvent.KEYCODE_MEDIA_NEXT){if(event.getAction()==KeyEvent.ACTION_DOWN)episodeController.nextNow();return true;}if(playing&&episodeEndView==null&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}
+  @Override public boolean dispatchKeyEvent(KeyEvent event){if((awaitingLiveRecoveryChoice||awaitingLiveAutoAdvance)&&liveTransportKey(event.getKeyCode()))return true;if(playing&&episodeController!=null&&event.getKeyCode()==KeyEvent.KEYCODE_MEDIA_NEXT){if(event.getAction()==KeyEvent.ACTION_DOWN)episodeController.nextNow();return true;}if(playing&&episodeEndView==null&&vodSession!=null&&playerView!=null&&VodPlayerControls.dispatchKeyEvent(playerView,event))return true;return super.dispatchKeyEvent(event);}
   private boolean liveTransportKey(int code){return code==KeyEvent.KEYCODE_MEDIA_PLAY||code==KeyEvent.KEYCODE_MEDIA_PAUSE||code==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE||code==KeyEvent.KEYCODE_MEDIA_STOP||code==KeyEvent.KEYCODE_MEDIA_NEXT||code==KeyEvent.KEYCODE_MEDIA_PREVIOUS||code==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||code==KeyEvent.KEYCODE_MEDIA_REWIND;}
   @Override public boolean onKeyDown(int code,KeyEvent event){if(playing&&(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_DPAD_UP||code==KeyEvent.KEYCODE_DPAD_DOWN)){showPlayerControls();}return super.onKeyDown(code,event);}
   private void rememberPlayback(){
@@ -1251,3 +1279,4 @@ public class MainActivity extends Activity {
   @Override protected void onStop(){rememberPlayback();releaseVideo();super.onStop();}
   @Override public void onBackPressed(){if(playing){render();return;}if(section.equals("Buscar")){if(searchInput!=null&&searchInput.hasFocus()){searchInput.leaveEditor();return;}section=searchOrigin;render();return;}if(logged&&!section.equals("Inicio")){section="Inicio";render();return;}super.onBackPressed();}
 }
+
