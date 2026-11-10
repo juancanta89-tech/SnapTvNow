@@ -1,0 +1,61 @@
+name: Verify signed SNAPTVNOW startup
+on:
+  push:
+    branches: [test/android-signed-smoke-1.0.31]
+    paths: [.github/workflows/android-signed-smoke.yml]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  startup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Download and verify the signed build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --max-time 120 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/13561871810/zip" \
+            --output signed.zip
+          unzip -p signed.zip app-release.apk > signed.apk
+          echo "a70a6c5f16bf6df51551103971fcb96c1bf84af613f0c4cd2244996e223c8f0c  signed.apk" | sha256sum -c -
+      - name: Enable KVM on the isolated runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Write the local startup check
+        run: |
+          cat > smoke.sh <<'SH'
+          set -euo pipefail
+          adb install signed.apk
+          adb shell am start -W -n com.snaptvnow.tv/.MainActivity
+          for attempt in 1 2 3; do
+            if adb shell uiautomator dump /sdcard/snaptv-smoke.xml >/dev/null; then
+              adb pull /sdcard/snaptv-smoke.xml login.xml >/dev/null
+              if python3 -c "import sys, xml.etree.ElementTree as E; nodes=E.parse('login.xml').iter('node'); sys.exit(sum(n.get('package')=='com.snaptvnow.tv' and n.get('class')=='android.widget.EditText' for n in nodes)<2)"; then
+                echo 'VERIFIED: SNAPTVNOW 1.0.31 installed and rendered both login fields.'
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo 'Login fields were not visible after startup.' >&2
+          exit 1
+          SH
+      - name: Install the APK and verify the login screen
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 28
+          arch: x86_64
+          target: default
+          emulator-boot-timeout: 240
+          disable-animations: true
+          emulator-options: -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none
+          script: bash smoke.sh
