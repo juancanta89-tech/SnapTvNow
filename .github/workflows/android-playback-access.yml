@@ -1,0 +1,40 @@
+name: Native Android playback access
+on:
+  push:
+    branches: [automation/repair-2026-11-10-03]
+    paths: [.github/workflows/android-playback-access.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-playback-access-2026-11-10
+  cancel-in-progress: false
+
+jobs:
+  access:
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 2
+    steps:
+      - name: Check existing protected test login without starting Android
+        env:
+          SNAPTVNOW_TEST_PASSWORD: ${{ secrets.SNAPTVNOW_TEST_PASSWORD }}
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e /dev/kvm ]]; then
+            echo "Android acceleration device is available on this runner."
+          else
+            echo "::error::Android acceleration device is unavailable on this runner."
+            exit 1
+          fi
+          if [[ -n "${SNAPTVNOW_TEST_PASSWORD:-}" || -n "${DIEGUITO2026_PASSWORD:-}" ]]; then
+            echo "A protected credential is configured for the authorized test account."
+            echo "Native runner available. Protected test credential configured. Authentication and playback are pending." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Native runner available. Test login is not configured under SNAPTVNOW_TEST_PASSWORD or DIEGUITO2026_PASSWORD. No login or playback was attempted." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::The native playback job requires the existing protected credential for dieguito2026."
+            exit 1
+          fi
