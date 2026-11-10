@@ -178,12 +178,17 @@ final class PlaybackHistory {
 
   long updated(String account,String id){return preferences.getLong(key(account,id)+".updated",0);}
   long duration(String account,String id){return preferences.getLong(key(account,id)+".duration",0);}
-  synchronized void applyRemote(String account,Catalog.Item item,JSONObject row){
-    if(item.profile==null||row==null||row.optLong("updatedAt")<=updated(account,item.id))return;
-    if(!item.profile.episodeId.isEmpty()&&!row.optBoolean("deleted")&&!item.profile.episodeId.equals(row.optString("episodeId")))return;
-    remember(account,item);String k=key(account,item.id);SharedPreferences.Editor edit=preferences.edit().putLong(k+".updated",row.optLong("updatedAt")).putBoolean(k+".completed",false);
-    if(row.optBoolean("deleted"))edit.remove(k+".position").remove(k+".duration");else edit.putLong(k+".position",row.optLong("time")*1000).putLong(k+".duration",row.optLong("duration")*1000);
-    edit.apply();
+  synchronized boolean applyRemote(String account,Catalog.Item item,JSONObject row){
+    if(item.profile==null||row==null||row.optLong("updatedAt")<=updated(account,item.id))return false;
+    if(item.id.startsWith("episode")){
+      if(item.profile.episodeId.isEmpty()||!item.profile.episodeId.equals(row.optString("episodeId")))return false;
+    }else if(!item.id.startsWith("movie"))return false;
+    boolean deleted=row.optBoolean("deleted"),done=deleted&&row.optBoolean("completed");
+    remember(account,item);String k=key(account,item.id);
+    SharedPreferences.Editor edit=preferences.edit().putLong(k+".updated",row.optLong("updatedAt")).putBoolean(k+".completed",done);
+    if(deleted)edit.remove(k+".position").remove(k+".duration");
+    else edit.putLong(k+".position",row.optLong("time")*1000).putLong(k+".duration",row.optLong("duration")*1000);
+    edit.apply();return true;
   }
   private long nextTime(){long time=Math.max(System.currentTimeMillis(),preferences.getLong("clock",0)+1);preferences.edit().putLong("clock",time).apply();return time;}
   static String time(long ms){long seconds=Math.max(0,ms)/1000;return seconds>=3600?String.format(Locale.ROOT,"%d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60):String.format(Locale.ROOT,"%d:%02d",seconds/60,seconds%60);}
