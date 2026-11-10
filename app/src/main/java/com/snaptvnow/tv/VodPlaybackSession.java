@@ -13,6 +13,7 @@ final class VodPlaybackSession implements Player.Listener {
   private final Player player;
   private final PlaybackHistory history;
   private final String account, contentId;
+  private final Runnable checkpointSaved;
   private final Handler handler = new Handler(Looper.getMainLooper());
   private boolean reachedReady, completed, closed;
   private boolean retryPending;
@@ -20,6 +21,7 @@ final class VodPlaybackSession implements Player.Listener {
   private MediaItem mediaItem;
   private long retryPosition;
   private long requestedStartPosition;
+  private long lastSavedPosition;
   private final Runnable reconnect = this::reconnect;
   private void reconnect(){
     if(closed||!retryPending||!player.getPlayWhenReady()
@@ -38,16 +40,23 @@ final class VodPlaybackSession implements Player.Listener {
   };
 
   VodPlaybackSession(Player player, PlaybackHistory history, String account, String contentId) {
+    this(player, history, account, contentId, () -> {});
+  }
+
+  VodPlaybackSession(Player player, PlaybackHistory history, String account, String contentId,
+      Runnable checkpointSaved) {
     this.player = player;
     this.history = history;
     this.account = account;
     this.contentId = contentId;
+    this.checkpointSaved = checkpointSaved;
   }
 
   void start(MediaItem item, long lifecyclePosition, boolean paused) {
     mediaItem=item;
     requestedStartPosition = lifecyclePosition >= 0
         ? lifecyclePosition : history.position(account, contentId);
+    lastSavedPosition = requestedStartPosition;
     player.addListener(this);
     player.setMediaItem(item, requestedStartPosition);
     player.setPlayWhenReady(!paused);
@@ -63,19 +72,22 @@ final class VodPlaybackSession implements Player.Listener {
       long duration = player.getDuration();
       // A provider may replace the file under an existing ID with a shorter file.
       if (requestedStartPosition > 0 && duration > 0 && requestedStartPosition >= duration) {
-        player.seekTo(0);
         history.reset(account, contentId);
+        lastSavedPosition = 0;
+        player.seekTo(0);
+        checkpointSaved.run();
       }
       requestedStartPosition = -1;
     } else if (state == Player.STATE_ENDED) {
       cancelRecovery();
       completed = true;
       history.complete(account, contentId);
+      checkpointSaved.run();
     }
   }
 
   @Override public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-    if (!playWhenReady) save(true);
+    if (!playWhenReady) saveNow();
     if(!playWhenReady)handler.removeCallbacks(reconnect);
     else if(retryPending){handler.removeCallbacks(reconnect);handler.postDelayed(reconnect,500);}
   }
@@ -91,7 +103,7 @@ final class VodPlaybackSession implements Player.Listener {
     if(closed||completed||mediaItem==null||!retryable(error)){cancelRecovery();return false;}
     if(retryPending)return true;
     if(retries>=2){cancelRecovery();return false;}
-    retryPosition=lifecyclePosition();save(true);reachedReady=false;requestedStartPosition=retryPosition;retryPending=true;
+    retryPosition=lifecyclePosition();saveNow();reachedReady=false;requestedStartPosition=retryPosition;retryPending=true;
     handler.postDelayed(reconnect,++retries==1?500:1500);return true;
   }
   private static boolean retryable(PlaybackException error){
@@ -112,19 +124,25 @@ final class VodPlaybackSession implements Player.Listener {
   @Override public void onPositionDiscontinuity(
       Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
     if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+      if (completed) lastSavedPosition = -1;
       completed = false;
-      save(false);
+      saveNow();
     }
   }
 
   private void save(boolean flush) {
     // Preparing/failed startup often reports zero. Preserve the old bookmark until playback is ready.
     if (closed || completed || !reachedReady) return;
-    history.save(account, contentId, player.getCurrentPosition(), player.getDuration(), flush);
+    long position = player.getCurrentPosition();
+    // An idle television must never make an unchanged bookmark look more recent.
+    if (position < 0 || position == lastSavedPosition) return;
+    lastSavedPosition = position;
+    history.save(account, contentId, position, player.getDuration(), flush);
   }
 
   void saveNow() {
     save(true);
+    checkpointSaved.run();
   }
 
   long lifecyclePosition() {
@@ -135,7 +153,7 @@ final class VodPlaybackSession implements Player.Listener {
 
   void close() {
     if (closed) return;
-    save(true);
+    saveNow();
     closed = true;
     cancelRecovery();
     handler.removeCallbacks(checkpoint);

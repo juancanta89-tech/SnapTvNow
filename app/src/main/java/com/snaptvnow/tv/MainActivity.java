@@ -144,45 +144,111 @@ public class MainActivity extends Activity {
   private XtreamClient historyRecoveryClient;
   private boolean historyRestoring,historyRecoveryAttempted;
   private String favoriteAccount="";
-  private int profileGeneration,loginRequest;
+  private int profileGeneration,loginRequest,profileOpenGeneration;
   private Runnable profileTick;
-  private boolean profileHydrating;
+  private boolean profileHydrating,openingProfileTitle,profileViewDirty;
   private final java.util.Set<String> hydratedProfiles=new java.util.HashSet<>();
   private void bindProfile(){
     closeProfile();if(historyRecoveryClient!=client){historyRecovery=null;historyRecoveryAttempted=false;historyRestoring=false;}favoriteAccount=client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
     final int generation=profileGeneration;
-    nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;applyProfiles();if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();}));
-    if(nativeProfile!=null){nativeProfile.refresh();profileTick=new Runnable(){int ticks;public void run(){if(generation!=profileGeneration||nativeProfile==null)return;if(vodSession!=null){vodSession.saveNow();nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(++ticks%8==0)nativeProfile.refresh();controlHandler.postDelayed(this,15000);}};controlHandler.postDelayed(profileTick,15000);}
+    nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{
+      if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;
+      profileViewDirty|=applyProfiles();
+      if(profilePage()&&foreground){
+        if(profileViewDirty&&!openingProfileTitle)render();
+        else hydrateProfiles();
+      }
+    }));
+    if(nativeProfile!=null){
+      nativeProfile.refresh();
+      profileTick=new Runnable(){int ticks;public void run(){
+        if(generation!=profileGeneration||nativeProfile==null)return;
+        if(foreground){
+          if(vodSession!=null)vodSession.saveNow();
+          if(++ticks%2==0&&profilePage())nativeProfile.refresh();
+        }
+        controlHandler.postDelayed(this,15000);
+      }};
+      controlHandler.postDelayed(profileTick,15000);
+    }
   }
-  private void closeProfile(){exclusiveItems.clear();exclusiveLoaded=exclusiveLoading=false;exclusiveQuery=exclusiveError="";loginRequest++;profileGeneration++;profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
-  private void applyProfiles(){
-    if(nativeProfile==null)return;
-    for(Catalog.Item item:seen.values())applyProfile(item);
-    accountFavorites.save(favoriteAccount,favorites);
+  private void closeProfile(){exclusiveItems.clear();exclusiveLoaded=exclusiveLoading=false;exclusiveQuery=exclusiveError="";loginRequest++;profileGeneration++;cancelProfileOpen();profileHydrating=false;if(profileTick!=null)controlHandler.removeCallbacks(profileTick);profileTick=null;if(nativeProfile!=null)nativeProfile.stop();nativeProfile=null;}
+  private boolean profilePage(){return !playing&&(section.equals("Inicio")||section.equals("Continuar viendo")||section.equals("Mi lista"));}
+  private void cancelProfileOpen(){profileOpenGeneration++;openingProfileTitle=false;}
+  private void withFreshProgress(Runnable open){
+    if(nativeProfile==null){open.run();return;}
+    int request=++profileOpenGeneration;openingProfileTitle=true;
+    Runnable ready=()->{
+      if(request!=profileOpenGeneration||isFinishing()||isDestroyed())return;
+      cancelProfileOpen();open.run();
+    };
+    // Keep local playback available on a slow or offline connection.
+    controlHandler.postDelayed(ready,2000);
+    nativeProfile.refresh(()->controlHandler.post(ready));
+  }
+  private boolean applyProfiles(){
+    if(nativeProfile==null)return false;
+    boolean changed=false;
+    for(Catalog.Item item:seen.values())changed|=applyProfile(item);
+    if(changed)accountFavorites.save(favoriteAccount,favorites);
     if(video!=null)PlayerTrackPreferences.apply(video,nativeProfile);
+    return changed;
   }
-  private void applyProfile(Catalog.Item item){
-    if(nativeProfile==null||item.profile==null)return;
-    org.json.JSONObject favorite=nativeProfile.record("favorite",item.profile);if(favorite!=null&&!item.id.startsWith("episode")){if(favorite.optBoolean("deleted"))favorites.remove(item.id);else favorites.add(item.id);}
-    if(currentItem==null||!currentItem.id.equals(item.id)||!playing)playbackHistory.applyRemote(playbackAccount(),item,nativeProfile.record("progress",item.profile));
-    nativeProfile.progress(item,playbackHistory,playbackAccount());
+  private boolean applyProgress(Catalog.Item item){
+    return nativeProfile!=null&&playbackHistory.applyRemote(playbackAccount(),item,nativeProfile.record("progress",item.profile));
+  }
+  private boolean applyProfile(Catalog.Item item){
+    if(nativeProfile==null||item.profile==null)return false;
+    boolean changed=false;
+    org.json.JSONObject favorite=nativeProfile.record("favorite",item.profile);
+    if(favorite!=null&&!item.id.startsWith("episode"))changed=favorite.optBoolean("deleted")?favorites.remove(item.id):favorites.add(item.id);
+    if(!playing||currentItem==null||!currentItem.id.equals(item.id)){
+      changed|=applyProgress(item);
+      nativeProfile.progress(item,playbackHistory,playbackAccount());
+    }
+    return changed;
   }
   private void hydrateProfiles(){
     if(nativeProfile==null||profileHydrating||client==null)return;
     final NativeProfileSync sync=nativeProfile;final XtreamClient session=client;final int generation=profileGeneration;
     final java.util.Map<String,org.json.JSONObject> wanted=new java.util.LinkedHashMap<>();
-    for(org.json.JSONObject row:sync.snapshot())if(!row.optBoolean("deleted")&&!row.optString("kind").equals("preference")&&!hydratedProfiles.contains(row.optString("key"))){if(row.optString("kind").equals("progress")||!wanted.containsKey(row.optString("key")))wanted.put(row.optString("key"),row);}
+    java.util.Set<String> known=new java.util.HashSet<>(hydratedProfiles);
+    for(Catalog.Item item:seen.values())if(item.profile!=null)known.add(item.profile.key()+":"+item.profile.episodeId);
+    List<org.json.JSONObject> rows=sync.snapshot();
+    java.util.Collections.sort(rows,(a,b)->Long.compare(b.optLong("updatedAt"),a.optLong("updatedAt")));
+    int movies=0,series=0;
+    for(org.json.JSONObject row:rows){
+      String kind=row.optString("kind"),type=row.optString("type"),key=row.optString("key");
+      if(kind.equals("progress")&&!section.equals("Mi lista")){
+        if(row.optBoolean("deleted")&&(!row.optBoolean("completed")||!type.equals("series")))continue;
+        if(type.equals("movie")&&++movies>8||type.equals("series")&&++series>8)continue;
+        if(!known.contains(key+":"+row.optString("episodeId")))wanted.put(key,row);
+      }else if(kind.equals("favorite")&&section.equals("Mi lista")&&!row.optBoolean("deleted")&&!known.contains(key+":")){
+        wanted.put(key,row);
+      }
+    }
     if(wanted.isEmpty())return;profileHydrating=true;
     new Thread(()->{List<Catalog.Item> found=new ArrayList<>();boolean success=true;try{
       for(CatalogSearch.Scope scope:new CatalogSearch.Scope[]{CatalogSearch.Scope.MOVIES,CatalogSearch.Scope.SERIES,CatalogSearch.Scope.CHANNELS}){
         boolean needed=false;String type=scope==CatalogSearch.Scope.MOVIES?"movie":scope==CatalogSearch.Scope.SERIES?"series":"live";for(org.json.JSONObject row:wanted.values())if(row.optString("type").equals(type))needed=true;if(!needed)continue;
-        int seriesCount=0;for(Catalog.Item item:session.loadAll(scope))if(item.profile!=null&&wanted.containsKey(item.profile.key())){
+        for(Catalog.Item item:session.loadAll(scope))if(item.profile!=null&&wanted.containsKey(item.profile.key())){
           found.add(item);org.json.JSONObject row=wanted.get(item.profile.key());
-          if(type.equals("series")&&!row.optString("episodeId").isEmpty()&&seriesCount++<8){for(Catalog.Item episode:session.episodes(item))if(episode.profile!=null&&episode.profile.episodeId.equals(row.optString("episodeId")))found.add(episode);}
+          if(type.equals("series")&&!row.optString("episodeId").isEmpty()){
+            for(Catalog.Item episode:session.episodes(item))if(episode.profile!=null&&episode.profile.episodeId.equals(row.optString("episodeId")))found.add(episode);
+          }
         }
       }
     }catch(Exception ignored){success=false;}final boolean complete=success;
-    runOnUiThread(()->{if(generation!=profileGeneration||client!=session||nativeProfile!=sync||isFinishing()||isDestroyed())return;profileHydrating=false;hydratedProfiles.addAll(wanted.keySet());if(!complete)Toast.makeText(this,"No se pudieron cargar todos los títulos sincronizados. Usa Actualizar en esta pantalla para reintentar.",Toast.LENGTH_LONG).show();for(Catalog.Item item:found){seen.put(item.id,item);applyProfile(item);}accountFavorites.save(favoriteAccount,favorites);if(!playing&&(section.equals("Mi lista")||section.equals("Continuar viendo")))render();});
+    runOnUiThread(()->{
+      if(generation!=profileGeneration||client!=session||nativeProfile!=sync||isFinishing()||isDestroyed())return;
+      profileHydrating=false;
+      if(complete)for(org.json.JSONObject row:wanted.values())hydratedProfiles.add(row.optString("key")+":"+row.optString("episodeId"));
+      boolean changed=false;
+      for(Catalog.Item item:found){seen.put(item.id,item);changed|=applyProfile(item);}
+      accountFavorites.save(favoriteAccount,favorites);
+      profileViewDirty|=changed;
+      if(profileViewDirty&&profilePage()&&foreground&&!openingProfileTitle)render();
+    });
     }).start();
   }
   private boolean television(){return (getResources().getConfiguration().uiMode&Configuration.UI_MODE_TYPE_MASK)==Configuration.UI_MODE_TYPE_TELEVISION||getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK);}
@@ -235,6 +301,8 @@ public class MainActivity extends Activity {
     }).start();
   }
   private void render(){
+    cancelProfileOpen();
+    profileViewDirty=false;
     if(BoxPanel.enabled&&!BoxPanel.authorized()){showBoxBlocked();return;}
     boxBlocked=false;if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();}
     if(searchInput!=null){searchInput.leaveEditor();searchInput=null;}
@@ -285,7 +353,7 @@ public class MainActivity extends Activity {
   }
   private void releaseNativePlayback(){if(nativeProfile!=null&&playbackTransfer!=null)nativeProfile.releasePlayback(playbackTransfer.qualityTicket());playbackTransfer=null;}
   private void releaseVideo(){releaseVideo(false);}
-  private void releaseVideo(boolean reuse){if(video!=null){if(playbackListener!=null)video.removeListener(playbackListener);if(liveTrackListener!=null)video.removeListener(liveTrackListener);if(liveFrameListener!=null)video.clearVideoFrameMetadataListener(liveFrameListener);}playbackListener=liveTrackListener=null;liveFrameListener=null;releaseNativePlayback();if(audioDiagnostics!=null){audioDiagnostics.close();audioDiagnostics=null;}if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){if(reuse){video.stop();video.clearMediaItems();playbackTransfer=new PlaybackTransfer();}else{video.release();video=null;adaptiveLiveBuffer=null;}}}
+  private void releaseVideo(boolean reuse){if(video!=null){if(playbackListener!=null)video.removeListener(playbackListener);if(liveTrackListener!=null)video.removeListener(liveTrackListener);if(liveFrameListener!=null)video.clearVideoFrameMetadataListener(liveFrameListener);}playbackListener=liveTrackListener=null;liveFrameListener=null;releaseNativePlayback();if(audioDiagnostics!=null){audioDiagnostics.close();audioDiagnostics=null;}if(playbackMetrics!=null){playbackMetrics.close();playbackMetrics=null;}episodeLoadGeneration++;if(episodeController!=null){episodeController.close();episodeController=null;}episodeEndView=null;nextEpisodeButton=null;automaticEpisodeButton=null;if(trackDialog!=null){trackDialog.setOnDismissListener(null);trackDialog.dismiss();trackDialog=null;}if(vodSession!=null){vodSession.close();vodSession=null;}if(hideControls!=null){controlHandler.removeCallbacks(hideControls);hideControls=null;}if(advanceTimeout!=null){controlHandler.removeCallbacks(advanceTimeout);advanceTimeout=null;}if(countdownTick!=null){controlHandler.removeCallbacks(countdownTick);countdownTick=null;}if(liveRecovery!=null){liveRecovery.close();liveRecovery=null;}playerControls=null;if(playerView!=null){playerView.setPlayer(null);playerView=null;}if(video!=null){if(reuse){video.stop();video.clearMediaItems();playbackTransfer=new PlaybackTransfer();}else{video.release();video=null;adaptiveLiveBuffer=null;}}}
   private void brand(LinearLayout holder,int size){
     if(BoxPanel.enabled){ImageView logo=new ImageView(this);logo.setContentDescription("Logo de "+BoxPanel.name());logo.setScaleType(ImageView.ScaleType.FIT_CENTER);logo.setImageResource(R.drawable.snaptvnow_icon);android.graphics.Bitmap bitmap=BoxPanel.embeddedLogo();if(bitmap!=null)logo.setImageBitmap(bitmap);else if(!BoxPanel.brand().optString("logo","").isEmpty())Artwork.into(logo,BoxPanel.asset("logo"));holder.addView(logo,new LinearLayout.LayoutParams(d(42),d(42)));}
     TextView t=text(BoxPanel.name(),size,CYAN,true);t.setMaxLines(2);t.setEllipsize(TextUtils.TruncateAt.END);t.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD_ITALIC));holder.addView(t,new LinearLayout.LayoutParams(BoxPanel.enabled?d(170):-2,-2));
@@ -442,13 +510,14 @@ public class MainActivity extends Activity {
     foreground=false;
     boxGeneration++;if(boxTick!=null)controlHandler.removeCallbacks(boxTick);boxTick=null;
     if(adNext!=null){controlHandler.removeCallbacks(adNext);adNext=null;}
-    if(vodSession!=null){vodSession.saveNow();if(nativeProfile!=null)nativeProfile.progress(currentItem,playbackHistory,playbackAccount());}
+    if(vodSession!=null)vodSession.saveNow();
     super.onPause();
   }
   @Override protected void onResume(){
     super.onResume();foreground=true;
     watchBox();
     UpdateChecker.check(this);if(nativeProfile!=null)nativeProfile.refresh();
+    if(profileViewDirty&&profilePage()&&!openingProfileTitle)render();
     if(logged&&section.equals("Inicio"))scheduleAdvertisement();
   }
   private void loadAdvertisement(){
@@ -562,7 +631,8 @@ public class MainActivity extends Activity {
     });}).start();
   }
   private void continueWatching(boolean preview){
-    if(!preview){hydrateProfiles();if(historyRecovery!=null&&!historyRecoveryAttempted&&playbackHistory.recent(playbackAccount()).isEmpty()&&historyRecovery.available(playbackHistory))recoverLocalHistory();}
+    hydrateProfiles();
+    if(!preview&&historyRecovery!=null&&!historyRecoveryAttempted&&playbackHistory.recent(playbackAccount()).isEmpty()&&historyRecovery.available(playbackHistory))recoverLocalHistory();
     if(preview||!television())title("Continuar viendo");
     if(!preview){
       if(historyRecovery!=null){TextView recover=action(historyRestoring?"Recuperando progreso…":"Recuperar historial guardado",this::recoverLocalHistory);recover.setEnabled(!historyRestoring);body.addView(recover);gap(body,10);}
@@ -578,7 +648,7 @@ public class MainActivity extends Activity {
     }
     List<PlaybackHistory.Entry> entries=playbackHistory.recent(playbackAccount(),preview?PlaybackHistory.Kind.ALL:continueKind);
     if(!preview){String capacity=continueKind==PlaybackHistory.Kind.ALL?entries.size()+" de 16 títulos":entries.size()+" de 8 "+(continueKind==PlaybackHistory.Kind.MOVIES?"películas":"series");body.addView(text(capacity,12,MUTED,false));gap(body,8);}
-    if(entries.isEmpty())body.addView(text("Aquí aparecerán las películas y el último capítulo que dejes pendiente en este dispositivo.",14,MUTED,false));
+    if(entries.isEmpty())body.addView(text(nativeProfile==null?"Aquí aparecerán los títulos que dejes pendientes en este dispositivo.":"Aquí aparecerán los títulos que dejes pendientes con esta cuenta.",14,MUTED,false));
     appendContinueEntries(preview?entries.subList(0,Math.min(4,entries.size())):entries,!preview&&television());
     if(preview){body.addView(action("Ver todo · Continuar viendo",()->{continueKind=PlaybackHistory.Kind.ALL;section="Continuar viendo";render();}),new LinearLayout.LayoutParams(-1,d(44)));}
     else{gap(body,8);String note=continueKind==PlaybackHistory.Kind.ALL?"Máximo 8 películas y 8 series. Sale el título menos reciente del mismo tipo.":continueKind==PlaybackHistory.Kind.MOVIES?"Al agregar la 9.ª película, sale la menos reciente.":"Al agregar la 9.ª serie, sale la menos reciente.";body.addView(text(note,12,MUTED,false));}
@@ -615,10 +685,25 @@ public class MainActivity extends Activity {
   }
   private void resumeEntry(PlaybackHistory.Entry entry){
     if(client==null){Toast.makeText(this,"Conecta tu línea para continuar",Toast.LENGTH_LONG).show();return;}
-    if(entry.completed&&!entry.item.seriesId.isEmpty()){
-      openItem(new Catalog.Item(entry.item.seriesId,entry.item.seriesTitle,"Series","",""));return;
-    }
-    try{play(client.resume(entry));}catch(Exception error){Toast.makeText(this,"No se pudo recuperar este título",Toast.LENGTH_LONG).show();}
+    withFreshProgress(()->{
+      try{
+        Catalog.Item item=client.resume(entry);applyProgress(item);
+        if(!item.seriesId.isEmpty()){
+          PlaybackHistory.Entry latest=playbackHistory.lastSeries(playbackAccount(),item.seriesId);
+          org.json.JSONObject cloud=nativeProfile==null?null:nativeProfile.record("progress",item.profile);
+          Catalog.Item parent=seen.get(item.seriesId);
+          if(parent==null)parent=new Catalog.Item(item.seriesId,item.seriesTitle,"Series","","",item.artwork);
+          if(cloud!=null&&!cloud.optString("episodeId").isEmpty()&&(latest==null||cloud.optLong("updatedAt")>latest.updated)){
+            openSeries(parent,true);return;
+          }
+          if(latest!=null){
+            if(latest.completed){openSeries(parent,false);return;}
+            item=client.resume(latest);
+          }
+        }
+        play(item);
+      }catch(Exception error){Toast.makeText(this,"No se pudo recuperar este título",Toast.LENGTH_LONG).show();}
+    });
   }
   private void explore(){
     title("Explorar");body.addView(text("TV en vivo, películas y series",14,MUTED,false));gap(body,14);
@@ -731,26 +816,40 @@ public class MainActivity extends Activity {
   }
   private int nIndex(Catalog.Item item){return Math.max(0,items.indexOf(item));}
   private void openItem(Catalog.Item item){
-    if(MovieResumeDialog.show(this,playbackHistory,playbackAccount(),item,()->play(item)))return;
-    if(client==null||!item.id.startsWith("series")){play(item);return;}
+    if(item.id.startsWith("live")){play(item);return;}
+    withFreshProgress(()->{
+      applyProgress(item);
+      if(MovieResumeDialog.show(this,playbackHistory,playbackAccount(),item,()->play(item)))return;
+      if(client!=null&&item.id.startsWith("series"))openSeries(item,false);
+      else play(item);
+    });
+  }
+  private void openSeries(Catalog.Item item,boolean resumeLatest){
     final XtreamClient session=client;final LinearLayout origin=body;
+    int request=++profileOpenGeneration;openingProfileTitle=true;
     new Thread(()->{try{
       List<Catalog.Item> episodes=session.episodes(item);
       runOnUiThread(()->{
-        if(client!=session||body!=origin||playing||isFinishing()||isDestroyed())return;
+        if(request!=profileOpenGeneration||client!=session||body!=origin||playing||isFinishing()||isDestroyed())return;
+        cancelProfileOpen();
         if(episodes.isEmpty()){Toast.makeText(this,"Sin episodios disponibles",Toast.LENGTH_LONG).show();return;}
         episodeQueue=new ArrayList<>(episodes);episodeQueueSeries=item.id;episodeQueueClient=session;
         if(historyRecovery!=null)historyRecovery.restoreLoadedLegacy(playbackHistory,episodes);
         playbackHistory.rememberBookmarks(playbackAccount(),episodes);
+        for(Catalog.Item episode:episodes)if(applyProgress(episode))seen.put(episode.id,episode);
         int recommended=EpisodeSelection.recommended(episodes,playbackHistory,playbackAccount());
         Catalog.Item next=episodes.get(recommended);
+        if(resumeLatest&&playbackHistory.position(playbackAccount(),next.id)>0){
+          org.json.JSONObject cloud=nativeProfile==null?null:nativeProfile.record("progress",next.profile);
+          if(cloud==null||playbackHistory.updated(playbackAccount(),next.id)>=cloud.optLong("updatedAt")){play(next);return;}
+        }
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(item.title)
             .setSingleChoiceItems(EpisodeSelection.labels(episodes,playbackHistory,playbackAccount()),recommended,(picker,index)->{picker.dismiss();play(episodes.get(index));})
             .setNeutralButton(playbackHistory.position(playbackAccount(),next.id)>0?"Continuar":"Ver capítulo",(picker,which)->play(next))
             .setNegativeButton("Cerrar",null).create();
         dialog.setOnShowListener(visible->{dialog.getListView().requestFocus();dialog.getListView().setSelection(recommended);});dialog.show();
       });
-    }catch(Exception error){runOnUiThread(()->{if(client==session&&body==origin&&!isFinishing()&&!isDestroyed())Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show();});}}).start();
+    }catch(Exception error){runOnUiThread(()->{if(request==profileOpenGeneration&&client==session&&body==origin&&!isFinishing()&&!isDestroyed()){cancelProfileOpen();Toast.makeText(this,"No se pudieron cargar episodios",Toast.LENGTH_LONG).show();}});}}).start();
   }
   private void detail(Catalog.Item i){new AlertDialog.Builder(this).setTitle(i.title).setMessage(i.description+(client==null?"\n\nContenido de demostración.":"\n\nContenido de tu línea.")).setPositiveButton("Reproducir",(a,b)->openItem(i)).setNeutralButton(favorites.contains(i.id)?"Quitar favorito":"Añadir favorito",(a,b)->{toggleFavorite(i);render();}).setNegativeButton("Cerrar",null).show();}
   private void openSearch(){
@@ -958,6 +1057,7 @@ public class MainActivity extends Activity {
     Toast.makeText(this,favorites.contains(favoriteId(item))?"Añadido a Mi lista":"Quitado de Mi lista",Toast.LENGTH_SHORT).show();
   }
   private void play(Catalog.Item item){
+    cancelProfileOpen();
     if(BoxPanel.enabled&&!BoxPanel.authorized()){showBoxBlocked();return;}
     if(item.url==null||item.url.isEmpty()){Toast.makeText(this,"Este título no tiene enlace de reproducción",Toast.LENGTH_LONG).show();return;}
     final boolean vod=!item.id.startsWith("live");
@@ -995,7 +1095,12 @@ public class MainActivity extends Activity {
       else if(vod&&(vodSession==null||!vodSession.recover(error)))unavailable(stage,item,null);
     }};video.addListener(playbackListener);
     if(!vod&&!restoreLiveChoice)attachLiveRecovery(item,activePlayer);
-    if(vod){playbackHistory.remember(playbackAccount(),item);Artwork.rememberHistory(getApplicationContext(),PlaybackHistory.artworkKey(playbackAccount(),item),item.artwork);vodSession=new VodPlaybackSession(video,playbackHistory,playbackAccount(),item.id);vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);}
+    if(vod){
+      final String account=playbackAccount();final NativeProfileSync sync=nativeProfile;
+      playbackHistory.remember(account,item);Artwork.rememberHistory(getApplicationContext(),PlaybackHistory.artworkKey(account,item),item.artwork);
+      vodSession=new VodPlaybackSession(video,playbackHistory,account,item.id,()->{if(sync!=null&&sync==nativeProfile)sync.progress(item,playbackHistory,account);});
+      vodSession.start(MediaItem.fromUri(item.url),lifecyclePosition,lifecyclePaused);
+    }
     else{MediaItem liveItem=liveTransport.mediaItem(item.url,liveMediaUrl);
       if(reuse)video.setMediaSource(new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(playbackDataFactory()).createMediaSource(liveItem));else video.setMediaItem(liveItem);
       video.setPlayWhenReady(!lifecyclePaused&&!restoreLiveChoice);if(!restoreLiveChoice)video.prepare();}
@@ -1277,8 +1382,23 @@ public class MainActivity extends Activity {
   private void rememberPlayback(){
     if(video!=null)resumeTrackParameters=video.getTrackSelectionParameters();if(playing&&video!=null){resumeEpisodeEnded=episodeController!=null&&episodeController.state().ended;resumePosition=vodSession!=null?vodSession.lifecyclePosition():Math.max(0,video.getCurrentPosition());resumePaused=!video.getPlayWhenReady()||(vodSession!=null&&video.getPlaybackState()==Player.STATE_ENDED);}}
   @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);if(playing&&currentItem!=null){rememberPlayback();play(currentItem);}else render();}
-  @Override protected void onStart(){super.onStart();if(playing&&video==null&&currentItem!=null)play(currentItem);}
-  @Override protected void onStop(){rememberPlayback();releaseVideo();super.onStop();}
+  @Override protected void onStart(){
+    super.onStart();
+    if(playing&&video==null&&currentItem!=null){
+      Catalog.Item item=currentItem;
+      if(item.id.startsWith("live"))play(item);
+      else withFreshProgress(()->{
+        if(playing&&video==null&&currentItem==item){
+          if(applyProgress(item)){
+            resumePosition=playbackHistory.position(playbackAccount(),item.id);
+            resumeEpisodeEnded=EpisodeQueue.isEpisode(item)&&playbackHistory.completed(playbackAccount(),item.id);
+          }
+          play(item);
+        }
+      });
+    }
+  }
+  @Override protected void onStop(){cancelProfileOpen();rememberPlayback();releaseVideo();super.onStop();}
   @Override public void onBackPressed(){if(playing){render();return;}if(section.equals("Buscar")){if(searchInput!=null&&searchInput.hasFocus()){searchInput.leaveEditor();return;}section=searchOrigin;render();return;}if(logged&&!section.equals("Inicio")){section="Inicio";render();return;}super.onBackPressed();}
 }
 
