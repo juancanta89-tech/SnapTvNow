@@ -29,6 +29,10 @@ public class NativeProfileSyncTest {
   assertEquals("movie9001",item.id);assertEquals("movie:ccf:123",item.profile.key());assertTrue(item.url.endsWith("/9001.mp4"));
   assertNull(XtreamClient.parseItems("https://unrelated.example","alice","test","Películas",new JSONArray().put(row),new java.util.HashMap<>()).get(0).profile);
   assertFalse(ProfileReference.managed("http://api.snaptvnow.com"));assertFalse(ProfileReference.managed("https://api.snaptvnow.com.evil.example"));assertFalse(ProfileReference.managed("https://api.snaptvnow.com:444"));
+  String backup="https://snapmovienow-edge.juancanta89.workers.dev";
+  assertEquals(backup,ProfileReference.managedOrigin(backup+":443/"));
+  assertFalse(ProfileReference.managed(backup+".example"));
+  assertEquals(item.profile.key(),XtreamClient.parseItems(backup,"alice","test","Películas",new JSONArray().put(row),new java.util.HashMap<>()).get(0).profile.key());
  }
  @Test public void aClientKeepsItsServerAfterAnotherAccountConnects(){
   XtreamClient.SERVER="https://first.example";XtreamClient first=new XtreamClient("alice","test","","");XtreamClient.SERVER="https://second.example";XtreamClient second=new XtreamClient("bob","test","","");assertEquals("https://first.example",first.server());assertEquals("https://second.example",second.server());
@@ -103,7 +107,7 @@ public class NativeProfileSyncTest {
       .withProfile(new ProfileReference("series","3","ccf","9"));
   Catalog.Item next=new Catalog.Item("episode10","Capítulo 3","Series","","","","series3","Serie",1,3);
   history.remember("alice",earlier);history.save("alice",earlier.id,80_000,2_400_000,true);
-  JSONObject row=new JSONObject().put("updatedAt",now+1000).put("episodeId","9").put("deleted",true).put("completed",true);
+  JSONObject row=new JSONObject().put("updatedAt",history.updated("alice",earlier.id)+1).put("episodeId","9").put("deleted",true).put("completed",true);
   assertFalse(history.applyRemote("alice",earlier,row));
   assertTrue(history.applyRemote("alice",finished,row));
   assertEquals(80_000,history.position("alice",earlier.id));

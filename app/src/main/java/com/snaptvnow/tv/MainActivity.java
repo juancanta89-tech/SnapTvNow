@@ -146,16 +146,16 @@ public class MainActivity extends Activity {
   private String favoriteAccount="";
   private int profileGeneration,loginRequest,profileOpenGeneration;
   private Runnable profileTick;
-  private boolean profileHydrating,openingProfileTitle;
+  private boolean profileHydrating,openingProfileTitle,profileViewDirty;
   private final java.util.Set<String> hydratedProfiles=new java.util.HashSet<>();
   private void bindProfile(){
     closeProfile();if(historyRecoveryClient!=client){historyRecovery=null;historyRecoveryAttempted=false;historyRestoring=false;}favoriteAccount=client!=null?AccountFavorites.scope(client.server(),client.username()):"demo";favorites.clear();favorites.addAll(accountFavorites.load(favoriteAccount));hydratedProfiles.clear();
     final int generation=profileGeneration;
     nativeProfile=client==null?null:NativeProfileSync.connect(this,client,client.server(),()->runOnUiThread(()->{
       if(generation!=profileGeneration||nativeProfile==null||isFinishing()||isDestroyed())return;
-      boolean changed=applyProfiles();
+      profileViewDirty|=applyProfiles();
       if(profilePage()&&foreground){
-        if(changed&&!openingProfileTitle)render();
+        if(profileViewDirty&&!openingProfileTitle)render();
         else hydrateProfiles();
       }
     }));
@@ -246,7 +246,8 @@ public class MainActivity extends Activity {
       boolean changed=false;
       for(Catalog.Item item:found){seen.put(item.id,item);changed|=applyProfile(item);}
       accountFavorites.save(favoriteAccount,favorites);
-      if(changed&&profilePage()&&foreground&&!openingProfileTitle)render();
+      profileViewDirty|=changed;
+      if(profileViewDirty&&profilePage()&&foreground&&!openingProfileTitle)render();
     });
     }).start();
   }
@@ -301,6 +302,7 @@ public class MainActivity extends Activity {
   }
   private void render(){
     cancelProfileOpen();
+    profileViewDirty=false;
     if(BoxPanel.enabled&&!BoxPanel.authorized()){showBoxBlocked();return;}
     boxBlocked=false;if(BoxPanel.enabled){NAVY=BoxPanel.background();CYAN=BoxPanel.accent();}
     if(searchInput!=null){searchInput.leaveEditor();searchInput=null;}
@@ -515,6 +517,7 @@ public class MainActivity extends Activity {
     super.onResume();foreground=true;
     watchBox();
     UpdateChecker.check(this);if(nativeProfile!=null)nativeProfile.refresh();
+    if(profileViewDirty&&profilePage()&&!openingProfileTitle)render();
     if(logged&&section.equals("Inicio"))scheduleAdvertisement();
   }
   private void loadAdvertisement(){

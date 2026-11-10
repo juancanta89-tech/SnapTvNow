@@ -20,7 +20,7 @@ final class NativeProfileSync {
  private final Runnable changed;
  private final ExecutorService executor;
  private final ExecutorService releases=Executors.newSingleThreadExecutor();
- private final ExecutorService telemetry=Executors.newSingleThreadExecutor();
+ private final ExecutorService telemetry;
  private final Map<String,JSONObject> records=new LinkedHashMap<>(),pending=new LinkedHashMap<>();
  private static final class Metric {
   final JSONObject payload;final long measuredAt=android.os.SystemClock.elapsedRealtime();
@@ -31,16 +31,20 @@ final class NativeProfileSync {
  private boolean closed,scheduled,refreshRequested,metricScheduled;
  private long lastTime;
  NativeProfileSync(Context context,String account,Remote remote,Runnable changed){
-  this(context,account,remote,changed,Executors.newSingleThreadExecutor());
+  this(context,account,remote,changed,Executors.newSingleThreadExecutor(),Executors.newSingleThreadExecutor());
  }
  NativeProfileSync(Context context,String account,Remote remote,Runnable changed,ExecutorService executor){
-  this.executor=executor;
+  this(context,account,remote,changed,executor,executor);
+ }
+ private NativeProfileSync(Context context,String account,Remote remote,Runnable changed,ExecutorService executor,ExecutorService telemetry){
+  this.executor=executor;this.telemetry=telemetry;
   preferences=context.getApplicationContext().getSharedPreferences("native_profile",Context.MODE_PRIVATE);this.account=account;this.remote=remote;this.changed=changed;
   read(preferences.getString(account+".records","[]"),records);read(preferences.getString(account+".pending","[]"),pending);lastTime=preferences.getLong(account+".clock",0);
  }
  static NativeProfileSync connect(Context context,XtreamClient client,String server,Runnable changed){
-  if(!ProfileReference.managed(server))return null;
-  return new NativeProfileSync(context,AccountFavorites.scope(server,client.username()),new ApiRemote(client),changed);
+  String origin=ProfileReference.managedOrigin(server);
+  if(origin==null)return null;
+  return new NativeProfileSync(context,AccountFavorites.scope(server,client.username()),new ApiRemote(client,origin),changed);
  }
  private static String identity(JSONObject row){return row.optString("kind")+":"+row.optString("key");}
  private static boolean valid(JSONObject p){
@@ -166,11 +170,11 @@ final class NativeProfileSync {
    try{connection.call("profile_patch",new JSONObject().put("patches",new JSONArray(progress)));}
    catch(Exception ignored){/* Persisted changes are retried on the next login. */}
   });
-  executor.shutdown();telemetry.shutdownNow();releases.shutdown();
+  executor.shutdown();if(telemetry!=executor)telemetry.shutdownNow();releases.shutdown();
  }
  private static final class ApiRemote implements Remote {
-  private final XtreamClient client;private volatile String token;
-  ApiRemote(XtreamClient client){this.client=client;}
+  private final XtreamClient client;private final String origin;private String token;
+  ApiRemote(XtreamClient client,String origin){this.client=client;this.origin=origin;}
   public JSONObject call(String operation,JSONObject extra) throws Exception {
    for(int attempt=0;attempt<2;attempt++){
     String access=accessToken();
@@ -193,7 +197,7 @@ final class NativeProfileSync {
    return token;
   }
   private JSONObject post(JSONObject body) throws Exception {
-   okhttp3.Request request=new okhttp3.Request.Builder().url("https://api.snaptvnow.com/")
+   okhttp3.Request request=new okhttp3.Request.Builder().url(origin+"/")
        .post(okhttp3.RequestBody.create(body.toString(),okhttp3.MediaType.get("application/json; charset=utf-8"))).build();
    try(okhttp3.Response response=SharedNetwork.execute(request,6000,10000)){
     if(response.code()==401)throw new Exception("profile_auth_required");
