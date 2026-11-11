@@ -11,6 +11,8 @@ import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.MotionEvent;
+import android.view.KeyEvent;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONObject;
 import org.json.JSONArray;
@@ -40,6 +42,7 @@ public final class NativeProbe extends Instrumentation {
             automation = getUiAutomation();
             AccessibilityServiceInfo info = automation.getServiceInfo();
             info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+            info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(info);
             String mode = arguments.getString("mode", "");
             report.put("mode", mode);
@@ -102,13 +105,21 @@ public final class NativeProbe extends Instrumentation {
 
     private List<AccessibilityNodeInfo> nodes() {
         List<AccessibilityNodeInfo> result = new ArrayList<>();
-        AccessibilityNodeInfo root = automation.getRootInActiveWindow();
-        if (root != null) collect(root, result);
+        // The focused search field opens the IME. Its window can become the
+        // active root; inspect the app's own interactive windows as well.
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root != null && root.getPackageName() != null && APP.contentEquals(root.getPackageName())) collect(root,result);
+        }
+        if (result.isEmpty()) {
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            if (root != null) collect(root, result);
+        }
         return result;
     }
 
     private void collect(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> result) {
-        if (result.size() >= 3000) return;
+        if (result.size() >= 3000 || result.contains(node)) return;
         if (node.isVisibleToUser()) result.add(node);
         for (int index = 0; index < node.getChildCount(); index++) {
             AccessibilityNodeInfo child = node.getChild(index);
@@ -515,7 +526,10 @@ public final class NativeProbe extends Instrumentation {
             }
             List<AccessibilityNodeInfo> fields=editable();
             if (fields.size()==1) {
+                fields.get(0).performAction(AccessibilityNodeInfo.ACTION_FOCUS);
                 fill(fields.get(0),title);
+                automation.injectInputEvent(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_ENTER),true);
+                automation.injectInputEvent(new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_ENTER),true);
                 searched=true;
                 break;
             }

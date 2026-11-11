@@ -179,8 +179,8 @@ def live_targets(rows):
         target = {"resource": public_id, "kind": "live", "title": title}
         # Only numeric public/source references may leave the normal catalogue read.
         profile = matches[0].get("smn_profile")
-        if isinstance(profile, dict):
-            upstream = str(profile.get("upstreamId", profile.get("upstream_id", "")))
+        if isinstance(profile, dict) and profile.get("type") == "live":
+            upstream = str(profile.get("id", ""))
             server = str(profile.get("server", ""))
             if upstream.isdigit() and server in ("ccf",):
                 target["saved_reference"] = {"public_id": public_id, "server": server,
