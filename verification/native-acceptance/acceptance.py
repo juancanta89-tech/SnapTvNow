@@ -174,37 +174,47 @@ def live_targets(rows):
     return targets
 
 
-def series_target(data):
-    if not isinstance(data, dict) or not isinstance(data.get("info"), dict):
+def series_target(password):
+    # 30725 is the exact public episode seen on /series/, not a series-list ID.
+    rows = catalog("get_series", password)
+    if not isinstance(rows, list):
+        raise CheckFailure("series_catalog_not_verified")
+    candidates = [row for row in rows if isinstance(row, dict)
+                  and "anatomía de grey" in str(row.get("name", "")).casefold()
+                  and "2005" in str(row.get("name", ""))]
+    if len(candidates) != 1:
+        raise CheckFailure("exact_episode_parent_not_verified")
+    parent = candidates[0]
+    parent_id = str(parent.get("series_id", ""))
+    if not parent_id.isdigit():
+        raise CheckFailure("episode_parent_reference_not_verified")
+    title = safe_title(parent.get("name"))
+    if sum(isinstance(row, dict) and str(row.get("name", "")).strip() == title for row in rows) != 1:
+        raise CheckFailure("ambiguous_series_title")
+    data = catalog("get_series_info", password, parent_id)
+    if not isinstance(data, dict) or not isinstance(data.get("episodes"), dict):
         raise CheckFailure("series_detail_not_verified")
-    title = safe_title(data["info"].get("name"))
-    seasons = data.get("episodes")
-    if not isinstance(seasons, dict):
-        raise CheckFailure("series_episodes_not_verified")
-    episodes = []
-    for season, values in seasons.items():
+    matches = []
+    titles = []
+    for values in data["episodes"].values():
         if not isinstance(values, list):
             raise CheckFailure("series_episodes_not_verified")
         for episode in values:
             if not isinstance(episode, dict):
                 raise CheckFailure("series_episodes_not_verified")
-            episode_id = str(episode.get("id", ""))
-            if not episode_id.isdigit():
-                raise CheckFailure("episode_reference_not_verified")
-            try:
-                season_number = int(episode.get("season", season))
-                episode_number = int(episode.get("episode_num", 0))
-            except (TypeError, ValueError):
-                raise CheckFailure("episode_order_not_verified") from None
-            episodes.append((season_number, episode_number, episode_id, safe_title(episode.get("title"))))
-    if not episodes:
-        raise CheckFailure("series_has_no_observed_episodes")
-    first = min(episodes)
-    if sum(episode[3] == first[3] for episode in episodes) != 1:
+            episode_title = safe_title(episode.get("title"))
+            titles.append(episode_title)
+            if str(episode.get("id", "")) == "30725":
+                matches.append(episode)
+    if len(matches) != 1:
+        raise CheckFailure("exact_episode_reference_not_verified")
+    episode = matches[0]
+    episode_title = safe_title(episode.get("title"))
+    if titles.count(episode_title) != 1:
         raise CheckFailure("ambiguous_episode_title")
     return {"resource": "30725", "kind": "series", "title": title,
-            "episode_id": first[2], "episode_title": first[3],
-            "episode_selection": "first_by_season_and_episode"}
+            "series_public_id": parent_id, "episode_id": "30725",
+            "episode_title": episode_title, "episode_selection": "exact_public_episode_id"}
 
 
 def audio_evidence(path, captured_at, native):
@@ -240,6 +250,35 @@ def run(directory):
     report = {"app": preparation, "test_account": USERNAME,
               "started_epoch_ms": int(time.time() * 1000), "playback_attempts": 0, "cases": []}
     try:
+        # Check emulator audio with a local synthetic tone before requesting any media.
+        tone_path = directory / "audio-path-probe.wav"
+        tone_recorder = subprocess.Popen(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "pulse",
+             "-i", "snaptvnow_test.monitor", "-ac", "1", "-ar", "16000", str(tone_path)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(0.5)
+            tone_result = probe("audio_probe")
+        finally:
+            tone_recorder.terminate()
+            try:
+                tone_recorder.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                tone_recorder.kill()
+                tone_recorder.wait()
+        try:
+            with wave.open(str(tone_path), "rb") as tone_source:
+                tone_samples = array.array("h", tone_source.readframes(tone_source.getnframes()))
+            tone_rms = (math.sqrt(sum(value * value for value in tone_samples) / len(tone_samples)) / 32768
+                        if tone_samples else 0)
+        except (OSError, ValueError, wave.Error):
+            tone_rms = 0
+        finally:
+            tone_path.unlink(missing_ok=True)
+        report["emulator_audio_path"] = {"tone_completed": tone_result.get("status") == "test_tone_completed",
+                                         "rms": round(tone_rms, 6), "verified": tone_rms > 0.001}
+        if not report["emulator_audio_path"]["verified"]:
+            raise CheckFailure("emulator_audio_path_not_verified")
         report["login"] = probe("login", password=password)
         if report["login"].get("status") != "login_observed":
             raise CheckFailure("native_login_not_observed")
@@ -250,24 +289,9 @@ def run(directory):
             targets = [{"resource": public_id, "kind": "live", "state": str(error)}
                        for public_id in ("884", "394")]
         try:
-            targets.append(series_target(catalog("get_series_info", password, "30725")))
+            targets.append(series_target(password))
         except CheckFailure as error:
-            failed = {"resource": "30725", "kind": "series", "state": str(error)}
-            if str(error) == "catalog_http_404":
-                try:
-                    rows = catalog("get_series", password)
-                    if not isinstance(rows, list):
-                        raise CheckFailure("series_catalog_not_verified")
-                    matches = [row for row in rows if isinstance(row, dict)
-                               and str(row.get("series_id", "")) == "30725"]
-                    failed["current_catalog_matches"] = len(matches)
-                    if len(matches) == 1:
-                        failed["title"] = safe_title(matches[0].get("name"))
-                    elif not matches:
-                        failed["reference_state"] = "absent_from_current_account_series_catalog"
-                except CheckFailure as catalog_error:
-                    failed["reference_state"] = str(catalog_error)
-            targets.append(failed)
+            targets.append({"resource": "30725", "kind": "series", "state": str(error)})
         for target in targets:
             if "state" in target:
                 report["cases"].append(target)

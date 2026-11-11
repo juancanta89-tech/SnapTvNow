@@ -54,6 +54,9 @@ jobs:
           pactl load-module module-null-sink sink_name=snaptvnow_test
           pactl set-default-sink snaptvnow_test
           pactl set-default-source snaptvnow_test.monitor
+          pactl load-module module-native-protocol-tcp listen=127.0.0.1 port=4713 auth-ip-acl=127.0.0.1 auth-anonymous=1
+          pactl --server=tcp:127.0.0.1:4713 info > /dev/null
+          echo 'PULSE_SERVER=tcp:127.0.0.1:4713' >> "$GITHUB_ENV"
       - name: Enable the isolated Android runner
         if: env.LIVE_REQUESTED == 'true'
         shell: bash

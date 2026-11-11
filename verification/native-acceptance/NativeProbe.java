@@ -4,6 +4,8 @@ import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
@@ -35,7 +37,12 @@ public final class NativeProbe extends Instrumentation {
             automation = getUiAutomation();
             String mode = arguments.getString("mode", "");
             report.put("mode", mode);
-            if (mode.equals("login")) {
+            if (mode.equals("audio_probe")) {
+                ToneGenerator tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 100);
+                try { tone.startTone(ToneGenerator.TONE_DTMF_5, 1800); SystemClock.sleep(2200); }
+                finally { tone.release(); }
+                report.put("status", "test_tone_completed");
+            } else if (mode.equals("login")) {
                 login(arguments.getString("password", ""));
                 report.put("status", "login_observed");
             } else if (mode.equals("live") || mode.equals("series")) {
@@ -326,12 +333,22 @@ public final class NativeProbe extends Instrumentation {
                 report.put("reason", "app_resource_unavailable_observed");
                 break;
             }
-            if (!playerTitle(expectedTitle)) revealControls();
             if (!playerTitle(expectedTitle)) {
-                consecutive = 0;
-                continue;
+                revealControls();
+                SystemClock.sleep(200);
             }
-            selected = true;
+            if (playerTitle(expectedTitle)) selected = true;
+            for (AccessibilityNodeInfo node : nodes()) {
+                String value = text(node);
+                if (inApp(node) && value.startsWith("SNAPTVNOW  ·  ")
+                        && !value.equals("SNAPTVNOW  ·  " + expectedTitle)) {
+                    report.put("reason", "native_selected_resource_changed");
+                    report.put("status", "not_verified");
+                    report.put("title_selection_checked", false);
+                    return;
+                }
+            }
+            if (!selected) continue;
             int[] current = picture();
             boolean visible = rich(current);
             boolean moving = visible && previous != null && changed(previous, current);
