@@ -29,6 +29,11 @@ jobs:
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
         run: python3 verification/recent-movies/range_probe.py
+      - name: Observe external DNS stream after buffered pause
+        if: contains(github.event.head_commit.message, '[dns-buffer-pause]')
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/recent-movies/external_dns_probe.py
       - uses: actions/setup-java@v4
         if: env.LIVE_REQUESTED == 'true'
         with:
@@ -90,5 +95,6 @@ jobs:
             ${{ runner.temp }}/snaptvnow-recent-movies-probe/preparation.json
             ${{ runner.temp }}/snaptvnow-recent-movies-probe/native-report.json
             ${{ runner.temp }}/snaptvnow-recent-movies-probe/range-report.json
+            ${{ runner.temp }}/snaptvnow-recent-movies-probe/dns-buffer-pause-report.json
           if-no-files-found: ignore
           retention-days: 7
