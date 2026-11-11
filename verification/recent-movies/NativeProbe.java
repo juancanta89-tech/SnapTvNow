@@ -49,11 +49,14 @@ public final class NativeProbe extends Instrumentation {
             } else if (mode.equals("movie")) {
                 String title = arguments.getString("title", "");
                 if (title.isEmpty()) throw new ProbeFailure("missing_exact_title");
+                report.put("phase", "movie_launch");
                 launch();
-                search("Películas", title);
+                search("Películas", title, report);
+                report.put("phase", "movie_resume");
                 report.put("movie_resume_observed", resumeMovie(title));
                 playbackOpened = true;
                 report.put("start_action_sent", true);
+                report.put("phase", "movie_playback_observation");
                 observePlayback(title, report);
             } else {
                 throw new ProbeFailure("unknown_mode");
@@ -140,22 +143,27 @@ public final class NativeProbe extends Instrumentation {
         return false;
     }
 
+    private List<AccessibilityNodeInfo> matchingControls(String label, boolean navigation) {
+        List<AccessibilityNodeInfo> candidates = new ArrayList<>();
+        for (AccessibilityNodeInfo node : nodes()) {
+            String value = text(node);
+            if (!inApp(node) || node.isEditable() || !matchesLabel(value, label, navigation)) continue;
+            AccessibilityNodeInfo clickable = node;
+            while (clickable != null && !clickable.isClickable()) clickable = clickable.getParent();
+            if (clickable == null || !clickable.isEnabled()) continue;
+            boolean duplicate = false;
+            for (AccessibilityNodeInfo existing : candidates) {
+                if (existing.equals(clickable)) duplicate = true;
+            }
+            if (!duplicate) candidates.add(clickable);
+        }
+        return candidates;
+    }
+
     private void click(String label, boolean navigation, int timeoutSeconds) throws Exception {
         long deadline = SystemClock.elapsedRealtime() + timeoutSeconds * 1000L;
         while (SystemClock.elapsedRealtime() < deadline) {
-            List<AccessibilityNodeInfo> candidates = new ArrayList<>();
-            for (AccessibilityNodeInfo node : nodes()) {
-                String value = text(node);
-                if (!inApp(node) || node.isEditable() || !(matchesLabel(value, label, navigation))) continue;
-                AccessibilityNodeInfo clickable = node;
-                while (clickable != null && !clickable.isClickable()) clickable = clickable.getParent();
-                if (clickable == null || !clickable.isEnabled()) continue;
-                boolean duplicate = false;
-                for (AccessibilityNodeInfo existing : candidates) {
-                    if (existing.equals(clickable)) duplicate = true;
-                }
-                if (!duplicate) candidates.add(clickable);
-            }
+            List<AccessibilityNodeInfo> candidates = matchingControls(label, navigation);
             if (candidates.size() > 1) throw new ProbeFailure("ambiguous_native_selection");
             if (candidates.size() == 1
                     && candidates.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
@@ -206,7 +214,8 @@ public final class NativeProbe extends Instrumentation {
         return "other";
     }
 
-    private void search(String scope, String title) throws Exception {
+    private void search(String scope, String title, JSONObject report) throws Exception {
+        report.put("phase", "movie_search_navigation");
         if (!label("Buscar en todas las carpetas", false)) click("⌕", false, 12);
         click(scope, false, 8);
         long deadline = SystemClock.elapsedRealtime() + 8000;
@@ -217,14 +226,30 @@ public final class NativeProbe extends Instrumentation {
         }
         if (fields.size() != 1) throw new ProbeFailure("search_field_not_found");
         fill(fields.get(0), title);
+        report.put("phase", "movie_search_result_selection");
         deadline = SystemClock.elapsedRealtime() + 25000;
-        while (!label(title, false) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(250);
-        for (AccessibilityNodeInfo node : nodes()) {
-            if (inApp(node) && text(node).matches("(?:[2-9]|[1-9][0-9]+) resultados.*")) {
-                throw new ProbeFailure("ambiguous_catalog_search");
+        while (SystemClock.elapsedRealtime() < deadline) {
+            List<AccessibilityNodeInfo> candidates = matchingControls(title, false);
+            int textControls = 0, buttonControls = 0, containerControls = 0, otherControls = 0;
+            for (AccessibilityNodeInfo candidate : candidates) {
+                String type = String.valueOf(candidate.getClassName());
+                if (type.equals("android.widget.TextView")) textControls++;
+                else if (type.equals("android.widget.Button")) buttonControls++;
+                else if (type.equals("android.widget.LinearLayout")
+                        || type.equals("android.widget.FrameLayout")) containerControls++;
+                else otherControls++;
             }
+            report.put("exact_candidate_count", candidates.size());
+            report.put("candidate_text_controls", textControls);
+            report.put("candidate_button_controls", buttonControls);
+            report.put("candidate_container_controls", containerControls);
+            report.put("candidate_other_controls", otherControls);
+            if (candidates.size() > 1) throw new ProbeFailure("ambiguous_native_selection");
+            if (candidates.size() == 1
+                    && candidates.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+            SystemClock.sleep(250);
         }
-        click(title, false, 3);
+        throw new ProbeFailure("native_control_not_found");
     }
 
     private boolean resumeMovie(String title) throws Exception {
@@ -330,17 +355,20 @@ public final class NativeProbe extends Instrumentation {
     }
 
     private void observePlayback(String expectedTitle, JSONObject report) throws Exception {
-        long started = System.currentTimeMillis();
+        long started = SystemClock.elapsedRealtime();
         int[] previous = null;
         int consecutive = 0;
+        int longestConsecutive = 0;
         boolean selected = false;
         boolean audio = false;
+        boolean unavailable = false;
         long firstImage = 0;
         for (int sample = 0; sample < 18; sample++) {
             SystemClock.sleep(2000);
             audio |= audioTrackActive();
             if (label("Canal no disponible", false) || label("Contenido no disponible", false)) {
                 report.put("reason", "app_resource_unavailable_observed");
+                unavailable = true;
                 break;
             }
             if (!playerTitle(expectedTitle)) {
@@ -355,6 +383,8 @@ public final class NativeProbe extends Instrumentation {
                     report.put("reason", "native_selected_resource_changed");
                     report.put("status", "not_verified");
                     report.put("title_selection_checked", false);
+                    report.put("observation_end_epoch_ms", System.currentTimeMillis());
+                    report.put("observation_duration_ms", SystemClock.elapsedRealtime() - started);
                     return;
                 }
             }
@@ -366,17 +396,19 @@ public final class NativeProbe extends Instrumentation {
             if (moving) {
                 if (firstImage == 0) firstImage = System.currentTimeMillis();
                 consecutive++;
+                longestConsecutive = Math.max(longestConsecutive, consecutive);
             } else consecutive = 0;
             audio |= audioTrackActive();
-            if (consecutive >= 4) break;
         }
-        report.put("status", consecutive >= 4 ? "native_image_observed" : "not_verified");
+        long duration = SystemClock.elapsedRealtime() - started;
+        report.put("status", !unavailable && duration >= 30000 && longestConsecutive >= 4
+                ? "native_image_observed" : "not_verified");
         report.put("title_selection_checked", selected);
-        report.put("moving_image_samples", consecutive);
+        report.put("moving_image_samples", longestConsecutive);
         report.put("audio_track_active", audio);
         report.put("first_image_epoch_ms", firstImage);
         report.put("observation_end_epoch_ms", System.currentTimeMillis());
-        report.put("observation_duration_ms", System.currentTimeMillis() - started);
+        report.put("observation_duration_ms", duration);
         report.put("origin_attempt_selection", "not_verified");
     }
 

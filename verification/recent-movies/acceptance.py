@@ -145,7 +145,9 @@ def probe(mode, password=None, title=None):
             allowed = {"mode", "status", "reason", "title_selection_checked", "moving_image_samples",
                        "audio_track_active", "first_image_epoch_ms", "observation_end_epoch_ms",
                        "observation_duration_ms", "origin_attempt_selection", "start_action_sent",
-                       "movie_resume_observed"}
+                       "movie_resume_observed", "phase", "exact_candidate_count",
+                       "candidate_text_controls", "candidate_button_controls",
+                       "candidate_container_controls", "candidate_other_controls"}
             clean = {key: value for key, value in result.items() if key in allowed}
             clean["_audio_markers"] = markers
             return clean
