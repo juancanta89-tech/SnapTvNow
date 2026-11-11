@@ -46,20 +46,12 @@ public final class NativeProbe extends Instrumentation {
             } else if (mode.equals("login")) {
                 login(arguments.getString("password", ""));
                 report.put("status", "login_observed");
-            } else if (mode.equals("live") || mode.equals("series") || mode.equals("movie")) {
+            } else if (mode.equals("movie")) {
                 String title = arguments.getString("title", "");
                 if (title.isEmpty()) throw new ProbeFailure("missing_exact_title");
                 launch();
-                String scope = mode.equals("live") ? "Canales" : mode.equals("movie") ? "Películas" : "Series";
-                search(scope, title);
-                if (mode.equals("movie")) resumeMovie(title);
-                if (mode.equals("series")) {
-                    String episode = arguments.getString("episode_title", "");
-                    if (episode.isEmpty()) throw new ProbeFailure("missing_exact_episode");
-                    clickEpisode(episode, arguments.getString("episode_index", ""),
-                            "35000".equals(arguments.getString("pre_play_wait_ms", "0")) ? 35000 : 0, report);
-                    title = episode;
-                }
+                search("Películas", title);
+                report.put("movie_resume_observed", resumeMovie(title));
                 playbackOpened = true;
                 report.put("start_action_sent", true);
                 observePlayback(title, report);
@@ -235,7 +227,7 @@ public final class NativeProbe extends Instrumentation {
         click(title, false, 3);
     }
 
-    private void resumeMovie(String title) throws Exception {
+    private boolean resumeMovie(String title) throws Exception {
         long deadline = SystemClock.elapsedRealtime() + 5000;
         while (SystemClock.elapsedRealtime() < deadline) {
             boolean exactTitle = false;
@@ -257,67 +249,12 @@ public final class NativeProbe extends Instrumentation {
             if (choices == 1) {
                 if (!exactTitle) throw new ProbeFailure("movie_resume_title_not_verified");
                 click(resumeLabel, false, 3);
-                return;
+                return true;
             }
-            if (playerTitle(title) || label("Contenido no disponible", false)) return;
+            if (playerTitle(title) || label("Contenido no disponible", false)) return false;
             SystemClock.sleep(250);
         }
-    }
-
-    private void clickEpisode(String title, String indexValue, int pauseMs, JSONObject report) throws Exception {
-        int index;
-        try { index = Integer.parseInt(indexValue); }
-        catch (NumberFormatException error) { throw new ProbeFailure("episode_position_not_verified"); }
-        if (index < 0 || index > 10000) throw new ProbeFailure("episode_position_not_verified");
-        long deadline = SystemClock.elapsedRealtime() + 25000;
-        boolean positioned = false;
-        int pages = 0;
-        while (SystemClock.elapsedRealtime() < deadline) {
-            List<AccessibilityNodeInfo> matches = new ArrayList<>();
-            AccessibilityNodeInfo list = null;
-            for (AccessibilityNodeInfo node : nodes()) {
-                if (!inApp(node)) continue;
-                if ("android.widget.ListView".contentEquals(node.getClassName())) list = node;
-                if ("android.widget.CheckedTextView".contentEquals(node.getClassName())
-                        && text(node).contains(title)) matches.add(node);
-            }
-            if (matches.size() > 1) throw new ProbeFailure("ambiguous_episode_selection");
-            if (matches.size() == 1) {
-                if (pauseMs > 0) {
-                    long pausedAt = SystemClock.elapsedRealtime();
-                    SystemClock.sleep(pauseMs);
-                    report.put("pre_play_wait_ms", SystemClock.elapsedRealtime() - pausedAt);
-                    report.put("episode_picker_observed", true);
-                    deadline += pauseMs;
-                    pauseMs = 0;
-                    continue;
-                }
-                AccessibilityNodeInfo row = matches.get(0);
-                if (row.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
-                Rect bounds = new Rect(); row.getBoundsInScreen(bounds);
-                if (!bounds.isEmpty()) {
-                    long now = SystemClock.uptimeMillis();
-                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN,
-                            bounds.centerX(), bounds.centerY(), 0);
-                    MotionEvent up = MotionEvent.obtain(now, now + 30, MotionEvent.ACTION_UP,
-                            bounds.centerX(), bounds.centerY(), 0);
-                    boolean sent = automation.injectInputEvent(down, true);
-                    sent &= automation.injectInputEvent(up, true);
-                    down.recycle(); up.recycle();
-                    if (sent) return;
-                }
-            }
-            if (list != null && !positioned) {
-                Bundle position = new Bundle();
-                position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_ROW_INT, index);
-                list.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.getId(), position);
-                positioned = true;
-            } else if (list != null && pages++ < 64) {
-                if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) break;
-            }
-            SystemClock.sleep(250);
-        }
-        throw new ProbeFailure("series_episode_not_observed");
+        return false;
     }
 
     private void revealControls() {
@@ -399,7 +336,7 @@ public final class NativeProbe extends Instrumentation {
         boolean selected = false;
         boolean audio = false;
         long firstImage = 0;
-        for (int sample = 0; sample < 10; sample++) {
+        for (int sample = 0; sample < 18; sample++) {
             SystemClock.sleep(2000);
             audio |= audioTrackActive();
             if (label("Canal no disponible", false) || label("Contenido no disponible", false)) {

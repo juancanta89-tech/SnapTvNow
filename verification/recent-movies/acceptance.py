@@ -118,11 +118,9 @@ def prepare_apk(directory):
     return evidence
 
 
-def probe(mode, password=None, title=None, episode_title=None, episode_index=None):
+def probe(mode, password=None, title=None):
     parameters = ["am", "instrument", "-w", "-r", "-e", "mode", mode]
-    if mode == "series" and os.environ.get("NATIVE_COLD_SERIES") == "true":
-        parameters.extend(["-e", "pre_play_wait_ms", "35000"])
-    for key, value in (("password", password), ("title", title), ("episode_title", episode_title), ("episode_index", episode_index)):
+    for key, value in (("password", password), ("title", title)):
         if value is not None:
             parameters.extend(["-e", key, str(value)])
     parameters.append("com.snaptvnow.nativeprobe/.NativeProbe")
@@ -147,7 +145,7 @@ def probe(mode, password=None, title=None, episode_title=None, episode_index=Non
             allowed = {"mode", "status", "reason", "title_selection_checked", "moving_image_samples",
                        "audio_track_active", "first_image_epoch_ms", "observation_end_epoch_ms",
                        "observation_duration_ms", "origin_attempt_selection", "start_action_sent",
-                       "pre_play_wait_ms", "episode_picker_observed"}
+                       "movie_resume_observed"}
             clean = {key: value for key, value in result.items() if key in allowed}
             clean["_audio_markers"] = markers
             return clean
@@ -289,73 +287,59 @@ def metadata(directory):
         raise CheckFailure("movie_metadata_incomplete")
 
 
-def live_targets(rows):
+def verify_current_targets(targets, password):
+    rows = catalog("get_vod_streams", password)
     if not isinstance(rows, list):
-        raise CheckFailure("live_catalog_not_verified")
-    targets = []
-    for public_id in ("884", "394"):
+        raise CheckFailure("movie_catalog_not_verified")
+    for target in targets:
         matches = [row for row in rows if isinstance(row, dict)
-                   and str(row.get("stream_id", "")) == public_id]
-        if len(matches) != 1:
-            targets.append({"resource": public_id, "kind": "live", "state": "reference_not_verified"})
-            continue
-        title = safe_title(matches[0].get("name"))
-        if sum(isinstance(row, dict) and str(row.get("name", "")).strip() == title for row in rows) != 1:
-            targets.append({"resource": public_id, "kind": "live", "state": "ambiguous_catalog_title"})
-            continue
-        targets.append({"resource": public_id, "kind": "live", "title": title})
-    return targets
+                   and str(row.get("stream_id", "")) == target["resource"]]
+        if (len(matches) != 1 or matches[0].get("name", "").strip() != target["title"]
+                or str(matches[0].get("category_id", "")) != target["category_id"]):
+            raise CheckFailure("movie_reference_changed")
+        if sum(isinstance(row, dict) and row.get("name", "").strip() == target["title"]
+               for row in rows) != 1:
+            raise CheckFailure("movie_native_title_not_unique")
 
 
-def series_target(password):
-    # 30725 is the exact public episode seen on /series/, not a series-list ID.
-    rows = catalog("get_series", password)
-    if not isinstance(rows, list):
-        raise CheckFailure("series_catalog_not_verified")
-    candidates = [row for row in rows if isinstance(row, dict)
-                  and "anatomía de grey" in str(row.get("name", "")).casefold()
-                  and "2005" in str(row.get("name", ""))]
-    if len(candidates) != 1:
-        raise CheckFailure("exact_episode_parent_not_verified")
-    parent = candidates[0]
-    parent_id = str(parent.get("series_id", ""))
-    if not parent_id.isdigit():
-        raise CheckFailure("episode_parent_reference_not_verified")
-    title = safe_title(parent.get("name"))
-    if sum(isinstance(row, dict) and str(row.get("name", "")).strip() == title for row in rows) != 1:
-        raise CheckFailure("ambiguous_series_title")
-    data = catalog("get_series_info", password, parent_id)
-    if not isinstance(data, dict) or not isinstance(data.get("episodes"), dict):
-        raise CheckFailure("series_detail_not_verified")
-    matches = []
-    titles = []
-    ordered = []
-    for season, values in data["episodes"].items():
-        if not isinstance(values, list):
-            raise CheckFailure("series_episodes_not_verified")
-        for ordinal, episode in enumerate(values):
-            if not isinstance(episode, dict):
-                raise CheckFailure("series_episodes_not_verified")
-            episode_title = safe_title(episode.get("title"))
-            titles.append(episode_title)
-            try:
-                ordered.append((int(episode.get("season", season)), int(episode.get("episode_num", ordinal + 1)), episode))
-            except (TypeError, ValueError):
-                raise CheckFailure("episode_order_not_verified") from None
-            if str(episode.get("id", "")) == "30725":
-                matches.append(episode)
-    if len(matches) != 1:
-        raise CheckFailure("exact_episode_reference_not_verified")
-    episode = matches[0]
-    episode_title = safe_title(episode.get("title"))
-    ordered.sort(key=lambda item: item[:2])
-    episode_index = next(i for i, item in enumerate(ordered) if item[2] is episode)
-    if titles.count(episode_title) != 1:
-        raise CheckFailure("ambiguous_episode_title")
-    return {"resource": "30725", "kind": "series", "title": title,
-            "series_public_id": parent_id, "episode_id": "30725",
-            "episode_title": episode_title, "episode_index": episode_index,
-            "episode_selection": "exact_public_episode_id"}
+def safe_player_diagnostics(raw):
+    # Only fixed fields derived from the official app's bounded logcat are exported.
+    exceptions = ("InvalidResponseCodeException", "UnrecognizedInputFormatException", "ParserException",
+                  "DecoderInitializationException", "DecoderQueryException", "MediaCodecDecoderException",
+                  "DecoderException", "ExoPlaybackException", "PlaybackException", "SocketTimeoutException",
+                  "UnknownHostException", "ConnectException", "SSLHandshakeException", "EOFException",
+                  "FileNotFoundException", "IOException")
+    mimes = ("video/avc", "video/hevc", "video/av01", "video/x-vnd.on2.vp9", "video/x-vnd.on2.vp8",
+             "video/mp4v-es", "video/3gpp", "video/mpeg2", "video/dolby-vision", "audio/mp4a-latm",
+             "audio/ac3", "audio/eac3", "audio/vnd.dts", "audio/flac", "audio/opus", "audio/vorbis",
+             "video/x-matroska", "application/x-matroska", "video/mp4")
+    codes = sorted({int(value) for value in re.findall(r"\bplayer_error_([0-9]{4,6})\b", raw)})
+    http = sorted({int(value) for value in re.findall(
+        r"(?:Response code:\s*|responseCode\s*[=:]\s*|statusCode\s*[=:]\s*|HTTP/[12](?:\.[01])?\s+)([1-5][0-9]{2})\b", raw)})
+    decoders = sorted(set(re.findall(r"\b(?:OMX\.google\.[A-Za-z0-9_.-]{1,75}|c2\.android\.[A-Za-z0-9_.-]{1,75})\b", raw)))
+    return {"state": "logcat_observed", "player_error_codes": codes,
+            "exception_classes": [name for name in exceptions if re.search(r"\b" + name + r"\b", raw)],
+            "http_status_codes": http, "mime_types": [name for name in mimes if name in raw],
+            "decoder_names": decoders}
+
+
+def begin_player_diagnostics():
+    pid = command(["adb", "shell", "pidof", PACKAGE], timeout=10).strip()
+    if not re.fullmatch(r"[0-9]{1,8}", pid):
+        raise CheckFailure("official_app_pid_not_verified")
+    # The test runner is isolated. Start a fresh log window for this exact movie.
+    command(["adb", "logcat", "-c"], timeout=10)
+    return pid
+
+
+def player_diagnostics(pid):
+    if not re.fullmatch(r"[0-9]{1,8}", pid):
+        return {"state": "not_verified"}
+    try:
+        raw = command(["adb", "logcat", "-d", "--pid=" + pid, "-v", "brief", "-t", "256"], timeout=10)
+        return safe_player_diagnostics(raw[-131072:])
+    except CheckFailure:
+        return {"state": "not_verified"}
 
 
 def wav_position():
@@ -427,33 +411,45 @@ def run(directory):
         report["login"].pop("_audio_markers", None)
         if report["login"].get("status") != "login_observed":
             raise CheckFailure("native_login_not_observed")
-        # Metadata only. Media is requested exclusively by the installed app after UI selection.
-        targets = []
-        if os.environ.get("NATIVE_SCOPE", "all") != "series":
-            try:
-                targets = live_targets(catalog("get_live_streams", password))
-            except CheckFailure as error:
-                targets = [{"resource": public_id, "kind": "live", "state": str(error)}
-                           for public_id in ("884", "394")]
-        try:
-            targets.append(series_target(password))
-        except CheckFailure as error:
-            targets.append({"resource": "30725", "kind": "series", "state": str(error)})
+        # The earlier metadata step has established these exact public references.
+        metadata_report = json.loads((directory / "movie-metadata.json").read_text())
+        targets = metadata_report.get("targets")
+        if (metadata_report.get("state") != "metadata_observed" or not isinstance(targets, list)
+                or not 1 <= len(targets) <= 2):
+            raise CheckFailure("movie_targets_not_verified")
+        for target in targets:
+            if (not isinstance(target, dict) or target.get("kind") != "movie"
+                    or not str(target.get("resource", "")).isdigit()
+                    or not str(target.get("category_id", "")).isdigit()):
+                raise CheckFailure("movie_target_reference_not_verified")
+            safe_title(target.get("title"))
+        if normalize_title(targets[0]["title"]) != normalize_title(REQUESTED_TITLE):
+            raise CheckFailure("requested_movie_not_verified")
+        if any(target["category_id"] != targets[0]["category_id"] for target in targets):
+            raise CheckFailure("movie_category_mismatch")
+        report["requested_section"] = metadata_report.get("requested_section")
+        report["category_name"] = metadata_report.get("category_name")
+        report["selected_movies"] = len(targets)
+        verify_current_targets(targets, password)
         for target in targets:
             if "state" in target:
                 report["cases"].append(target)
                 continue
             native = {}
+            pid = ""
+            case_started = int(time.time() * 1000)
             try:
-                native = probe(target["kind"], title=target["title"],
-                               episode_title=target.get("episode_title"), episode_index=target.get("episode_index"))
+                pid = begin_player_diagnostics()
+                native = probe("movie", title=target["title"])
             except CheckFailure as error:
                 if str(error) == "native_command_timeout":
                     raise
                 native = {"status": "not_verified", "reason": str(error)}
             time.sleep(0.2)
             sound = audio_evidence(audio_path, native.pop("_audio_markers", []), native)
-            case = dict(target, native=native, audio=sound)
+            case = dict(target, native=native, audio=sound, diagnostics=player_diagnostics(pid),
+                        started_epoch_ms=case_started, finished_epoch_ms=int(time.time() * 1000),
+                        current_reference_verified=True)
             case["state"] = ("native_playback_observed" if native.get("status") == "native_image_observed"
                              and native.get("audio_track_active") and sound["audio_signal"] == "observed"
                              else "not_verified")
