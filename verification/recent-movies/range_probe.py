@@ -21,6 +21,16 @@ MAX_BODY_BYTES = 1024
 REQUEST_TIMEOUT = 15
 MAX_INTEGER = (1 << 63) - 1
 USER_AGENT = "VLC/3.0.21 LibVLC/3.0.21"
+KNOWN_MEDIA_ERRORS = frozenset({
+    "account_inactive", "adult_content_disabled", "ccf_capacity", "content_disabled",
+    "credentials_required", "https_required", "invalid_credentials", "invalid_stream",
+    "live_signal_unavailable", "live_startup_timeout", "media_origin_unapproved",
+    "method_not_allowed", "not_found", "operation_not_allowed", "panel_unavailable",
+    "playback_expired", "playback_superseded", "provider_inactive", "provider_not_configured",
+    "provider_temporarily_unavailable", "provider_unavailable", "session_expired",
+    "session_unavailable", "stream_unavailable", "title_not_allowed", "try_later",
+    "upstream_unavailable", "user_connection_limit", "xtream_disabled", "xtream_unavailable",
+})
 
 
 def epoch_ms():
@@ -77,6 +87,21 @@ def response_total(result):
     return None
 
 
+def classify_prefix(body):
+    if body.startswith(b"\x1a\x45\xdf\xa3"):
+        return {"prefix_classification": "EBML"}
+    if body.lstrip().startswith(b"{"):
+        try:
+            value = json.loads(body)
+            code = value.get("error") if isinstance(value, dict) else None
+            if isinstance(code, str) and code in KNOWN_MEDIA_ERRORS:
+                return {"prefix_classification": "JSON_error_known", "known_error_code": code}
+        except (ValueError, UnicodeError):
+            pass
+    # This category makes no claim that the prefix is decodable movie media.
+    return {"prefix_classification": "binary"}
+
+
 def verified_target(directory):
     path = directory / "movie-metadata.json"
     try:
@@ -120,8 +145,11 @@ def probe_range(password, start, end):
         "completed_epoch_ms": None, "status": None,
         "mime": None, "content_length": None, "content_range": None,
         "accept_ranges": None, "bytes_read": 0, "state": "not_observed",
+        "prefix_classification": None,
     }
     response = None
+    body = bytearray()
+    deadline = time.monotonic() + REQUEST_TIMEOUT
     try:
         # Keep the credential-bearing URL in memory only. Never log requests or exceptions.
         url = ("https://api.snaptvnow.com/movie/" + urllib.parse.quote(USERNAME, safe="")
@@ -144,8 +172,15 @@ def probe_range(password, start, end):
         # In particular, a 200 response is never skipped forward to the requested
         # offset: read at most 1024 bytes and close, even if Range was ignored.
         read = getattr(response, "read1", None) or response.read
-        body = read(MAX_BODY_BYTES)
-        result["bytes_read"] = len(body)
+        while len(body) < MAX_BODY_BYTES:
+            if time.monotonic() >= deadline:
+                raise TimeoutError
+            chunk = read(MAX_BODY_BYTES - len(body))
+            if not chunk:
+                break
+            body.extend(chunk)
+            result["bytes_read"] = len(body)
+        result.update(classify_prefix(body))
         result["state"] = "response_observed"
     except CheckFailure:
         result["reason"] = "range_redirect_rejected"
@@ -156,6 +191,8 @@ def probe_range(password, start, end):
     except Exception:
         result["reason"] = "range_probe_failed"
     finally:
+        if body and result["prefix_classification"] is None:
+            result.update(classify_prefix(body))
         if response is not None:
             try:
                 response.close()
