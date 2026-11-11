@@ -65,4 +65,51 @@ public class XtreamClientLoginTest {
     assertEquals(SERVERS,attempted);assertTrue(error.getMessage().contains("servidor disponible"));
     assertFalse(error.getMessage().contains("contraseña"));
   }
+  @Test public void migratedAccountUsesTheEnabledManagedServiceBeforeItsOldCcfSession() throws Exception {
+    String ccf="http://ccf.center:8444",managed="https://api.snaptvnow.com";
+    List<String> attempted=new ArrayList<>();
+    XtreamClient connected=XtreamClient.attemptLogin(XtreamClient.reconnectServers(Arrays.asList(ccf,managed),ccf),"copied-user","same-password",(server,user,pass)->{
+      attempted.add(server);assertEquals("copied-user",user);assertEquals("same-password",pass);return ACTIVE;
+    },null);
+    assertEquals(Arrays.asList(managed),attempted);assertEquals(managed,connected.server());
+  }
+  @Test public void deletedCcfAccountCanMoveToAnActiveEnabledManagedAccount() throws Exception {
+    String ccf="http://ccf.center:8444",managed="https://api.snaptvnow.com";
+    XtreamClient connected=XtreamClient.attemptLogin(Arrays.asList(ccf,managed),"copied-user","same-password",(server,user,pass)->{
+      if(server.equals(ccf))return "{\"user_info\":{\"auth\":0}}";return ACTIVE;
+    },null);
+    assertEquals(managed,connected.server());assertEquals("same-password",connected.password());
+  }
+  @Test public void aManagedSessionNeverReturnsToLegacyDnsAfterDenialOrAnOutage() throws Exception {
+    String ccf="http://ccf.center:8444",managed="https://api.snaptvnow.com",alias="https://snapmovienow-edge.juancanta89.workers.dev";
+    List<String> enabled=Arrays.asList(ccf,managed,alias);
+    for(int failure:Arrays.asList(401,403,429,503)){
+      List<String> attempted=new ArrayList<>();
+      assertThrows(Exception.class,()->XtreamClient.attemptLogin(XtreamClient.reconnectServers(enabled,managed),"copied-user","same-password",(server,user,pass)->{
+        attempted.add(server);if(server.equals(ccf))return ACTIVE;throw new XtreamClient.HttpFailure(failure);
+      },null));
+      assertEquals(Arrays.asList(managed,alias),attempted);
+    }
+    assertEquals(java.util.Collections.emptyList(),XtreamClient.reconnectServers(Arrays.asList(ccf),managed));
+    assertEquals(java.util.Collections.emptyList(),XtreamClient.reconnectServers(java.util.Collections.emptyList(),ccf));
+  }
+  @Test public void confirmedInactiveManagedAccountCannotBeRevivedByAnActiveLegacyDns() throws Exception {
+    String ccf="http://ccf.center:8444",managed="https://api.snaptvnow.com";
+    for(String status:Arrays.asList("Expired","Suspended","Disabled")){
+      List<String> attempted=new ArrayList<>();
+      assertThrows(XtreamClient.AccountDenied.class,()->XtreamClient.attemptLogin(XtreamClient.reconnectServers(Arrays.asList(ccf,managed),ccf),"copied-user","same-password",(server,user,pass)->{
+        attempted.add(server);return server.equals(managed)?ACTIVE.replace("Active",status):ACTIVE;
+      },null));
+      assertEquals(Arrays.asList(managed),attempted);
+    }
+  }
+  @Test public void anUnmigratedLegacyAccountCanContinueWhenTheManagedServiceDoesNotRecognizeIt() throws Exception {
+    String ccf="http://ccf.center:8444",managed="https://api.snaptvnow.com";
+    List<String> attempted=new ArrayList<>();
+    XtreamClient connected=XtreamClient.attemptLogin(XtreamClient.reconnectServers(Arrays.asList(ccf,managed),ccf),"legacy-user","same-password",(server,user,pass)->{
+      attempted.add(server);if(server.equals(managed))throw new XtreamClient.HttpFailure(401);return ACTIVE;
+    },null);
+    assertEquals(Arrays.asList(managed,ccf),attempted);assertEquals(ccf,connected.server());
+    assertEquals(Arrays.asList(ccf),XtreamClient.reconnectServers(Arrays.asList(ccf),ccf));
+  }
 }
