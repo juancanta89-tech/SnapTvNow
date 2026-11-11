@@ -246,7 +246,9 @@ def parser_evidence():
         fields = sorted(set(re.findall(r"JSONException: No value for ([A-Za-z_][A-Za-z_0-9]{0,63})", raw)))
         exceptions = [value for value in ["org.json.JSONException", "android.database.sqlite.SQLiteException",
                                           "java.lang.NullPointerException"] if value in raw]
-        return {"state": "read", "missing_fields": fields, "exception_classes": exceptions}
+        frames = re.findall(r"\bat (boxbr\.apksrebrand\.smarters\.[A-Za-z_0-9.$]+)\([^\n)]*\)", raw)
+        return {"state": "read", "missing_fields": fields, "exception_classes": exceptions,
+                "app_stack_methods": list(dict.fromkeys(frames))[:10]}
     except (CheckFailure, IndexError):
         return {"state": "not_verified"}
 
@@ -297,6 +299,8 @@ def run(directory):
                                            "playback_attempts": 0}
         except CheckFailure as error:
             report["series_catalogue"] = {"state": "not_verified", "reason": str(error), "playback_attempts": 0}
+        if os.environ.get("FGT_PUBLIC_ID") == "1412":
+            targets = [target for target in targets if target["resource"] == "1412"]
         report["login"] = probe("login", password=password)
         report["login"].pop("_audio_markers", None)
         if report["login"].get("status") != "login_observed":

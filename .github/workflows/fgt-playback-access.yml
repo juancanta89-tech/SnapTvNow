@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 12
     env:
       LIVE_REQUESTED: ${{ contains(github.event.head_commit.message, '[native-playback]') }}
+      FGT_PUBLIC_ID: ${{ contains(github.event.head_commit.message, '[showtime-only]') && '1412' || 'all' }}
     steps:
       - name: Require the explicitly configured test login for a live run
         if: env.LIVE_REQUESTED == 'true'
