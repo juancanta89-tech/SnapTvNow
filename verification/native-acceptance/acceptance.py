@@ -115,11 +115,11 @@ def prepare_apk(directory):
     return evidence
 
 
-def probe(mode, password=None, title=None, episode_title=None):
+def probe(mode, password=None, title=None, episode_title=None, episode_index=None):
     parameters = ["am", "instrument", "-w", "-r", "-e", "mode", mode]
-    for key, value in (("password", password), ("title", title), ("episode_title", episode_title)):
+    for key, value in (("password", password), ("title", title), ("episode_title", episode_title), ("episode_index", episode_index)):
         if value is not None:
-            parameters.extend(["-e", key, value])
+            parameters.extend(["-e", key, str(value)])
     parameters.append("com.snaptvnow.nativeprobe/.NativeProbe")
     # adb sends one shell string. Quote every argument, including credentials and catalog titles.
     markers = []
@@ -213,25 +213,33 @@ def series_target(password):
         raise CheckFailure("series_detail_not_verified")
     matches = []
     titles = []
-    for values in data["episodes"].values():
+    ordered = []
+    for season, values in data["episodes"].items():
         if not isinstance(values, list):
             raise CheckFailure("series_episodes_not_verified")
-        for episode in values:
+        for ordinal, episode in enumerate(values):
             if not isinstance(episode, dict):
                 raise CheckFailure("series_episodes_not_verified")
             episode_title = safe_title(episode.get("title"))
             titles.append(episode_title)
+            try:
+                ordered.append((int(episode.get("season", season)), int(episode.get("episode_num", ordinal + 1)), episode))
+            except (TypeError, ValueError):
+                raise CheckFailure("episode_order_not_verified") from None
             if str(episode.get("id", "")) == "30725":
                 matches.append(episode)
     if len(matches) != 1:
         raise CheckFailure("exact_episode_reference_not_verified")
     episode = matches[0]
     episode_title = safe_title(episode.get("title"))
+    ordered.sort(key=lambda item: item[:2])
+    episode_index = next(i for i, item in enumerate(ordered) if item[2] is episode)
     if titles.count(episode_title) != 1:
         raise CheckFailure("ambiguous_episode_title")
     return {"resource": "30725", "kind": "series", "title": title,
             "series_public_id": parent_id, "episode_id": "30725",
-            "episode_title": episode_title, "episode_selection": "exact_public_episode_id"}
+            "episode_title": episode_title, "episode_index": episode_index,
+            "episode_selection": "exact_public_episode_id"}
 
 
 def wav_position():
@@ -304,11 +312,13 @@ def run(directory):
         if report["login"].get("status") != "login_observed":
             raise CheckFailure("native_login_not_observed")
         # Metadata only. Media is requested exclusively by the installed app after UI selection.
-        try:
-            targets = live_targets(catalog("get_live_streams", password))
-        except CheckFailure as error:
-            targets = [{"resource": public_id, "kind": "live", "state": str(error)}
-                       for public_id in ("884", "394")]
+        targets = []
+        if os.environ.get("NATIVE_SCOPE", "all") != "series":
+            try:
+                targets = live_targets(catalog("get_live_streams", password))
+            except CheckFailure as error:
+                targets = [{"resource": public_id, "kind": "live", "state": str(error)}
+                           for public_id in ("884", "394")]
         try:
             targets.append(series_target(password))
         except CheckFailure as error:
@@ -320,7 +330,7 @@ def run(directory):
             native = {}
             try:
                 native = probe(target["kind"], title=target["title"],
-                               episode_title=target.get("episode_title"))
+                               episode_title=target.get("episode_title"), episode_index=target.get("episode_index"))
             except CheckFailure as error:
                 if str(error) == "native_command_timeout":
                     raise

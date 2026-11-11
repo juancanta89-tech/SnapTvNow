@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 12
     env:
       LIVE_REQUESTED: ${{ contains(github.event.head_commit.message, '[native-playback]') }}
+      NATIVE_SCOPE: ${{ contains(github.event.head_commit.message, '[series-only]') && 'series' || 'all' }}
     steps:
       - name: Require the explicitly configured test login for a live run
         if: env.LIVE_REQUESTED == 'true'

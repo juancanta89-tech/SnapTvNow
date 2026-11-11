@@ -4,6 +4,7 @@ import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
@@ -53,7 +54,7 @@ public final class NativeProbe extends Instrumentation {
                 if (mode.equals("series")) {
                     String episode = arguments.getString("episode_title", "");
                     if (episode.isEmpty()) throw new ProbeFailure("missing_exact_episode");
-                    clickEpisode(episode);
+                    clickEpisode(episode, arguments.getString("episode_index", ""));
                     title = episode;
                 }
                 playbackOpened = true;
@@ -231,18 +232,49 @@ public final class NativeProbe extends Instrumentation {
         click(title, false, 3);
     }
 
-    private void clickEpisode(String title) throws Exception {
+    private void clickEpisode(String title, String indexValue) throws Exception {
+        int index;
+        try { index = Integer.parseInt(indexValue); }
+        catch (NumberFormatException error) { throw new ProbeFailure("episode_position_not_verified"); }
+        if (index < 0 || index > 10000) throw new ProbeFailure("episode_position_not_verified");
         long deadline = SystemClock.elapsedRealtime() + 25000;
+        boolean positioned = false;
+        int pages = 0;
         while (SystemClock.elapsedRealtime() < deadline) {
             List<AccessibilityNodeInfo> matches = new ArrayList<>();
+            AccessibilityNodeInfo list = null;
             for (AccessibilityNodeInfo node : nodes()) {
-                if (inApp(node) && "android.widget.CheckedTextView".contentEquals(node.getClassName())
+                if (!inApp(node)) continue;
+                if ("android.widget.ListView".contentEquals(node.getClassName())) list = node;
+                if ("android.widget.CheckedTextView".contentEquals(node.getClassName())
                         && text(node).contains(title)) matches.add(node);
             }
             if (matches.size() > 1) throw new ProbeFailure("ambiguous_episode_selection");
-            if (matches.size() == 1
-                    && matches.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
-            SystemClock.sleep(300);
+            if (matches.size() == 1) {
+                AccessibilityNodeInfo row = matches.get(0);
+                if (row.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+                Rect bounds = new Rect(); row.getBoundsInScreen(bounds);
+                if (!bounds.isEmpty()) {
+                    long now = SystemClock.uptimeMillis();
+                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN,
+                            bounds.centerX(), bounds.centerY(), 0);
+                    MotionEvent up = MotionEvent.obtain(now, now + 30, MotionEvent.ACTION_UP,
+                            bounds.centerX(), bounds.centerY(), 0);
+                    boolean sent = automation.injectInputEvent(down, true);
+                    sent &= automation.injectInputEvent(up, true);
+                    down.recycle(); up.recycle();
+                    if (sent) return;
+                }
+            }
+            if (list != null && !positioned) {
+                Bundle position = new Bundle();
+                position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_ROW_INT, index);
+                list.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.getId(), position);
+                positioned = true;
+            } else if (list != null && pages++ < 64) {
+                if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) break;
+            }
+            SystemClock.sleep(250);
         }
         throw new ProbeFailure("series_episode_not_observed");
     }
