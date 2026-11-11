@@ -2,6 +2,7 @@ package com.snaptvnow.nativeprobe;
 
 import android.app.Instrumentation;
 import android.app.UiAutomation;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
@@ -10,14 +11,16 @@ import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
-import android.view.MotionEvent;
+import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** Controls the installed official app through Android accessibility only. */
 public final class NativeProbe extends Instrumentation {
@@ -36,6 +39,11 @@ public final class NativeProbe extends Instrumentation {
         boolean playbackOpened = false;
         try {
             automation = getUiAutomation();
+            AccessibilityServiceInfo service = automation.getServiceInfo();
+            if (service != null) {
+                service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+                automation.setServiceInfo(service);
+            }
             String mode = arguments.getString("mode", "");
             report.put("mode", mode);
             if (mode.equals("audio_probe")) {
@@ -49,15 +57,20 @@ public final class NativeProbe extends Instrumentation {
             } else if (mode.equals("movie")) {
                 String title = arguments.getString("title", "");
                 if (title.isEmpty()) throw new ProbeFailure("missing_exact_title");
+                boolean longWatch = "true".equals(arguments.getString("long_watch", "false"));
+                report.put("start_action_sent", false);
                 report.put("phase", "movie_launch");
                 launch();
                 search("Películas", title, report);
-                report.put("phase", "movie_resume");
-                report.put("movie_resume_observed", resumeMovie(title));
                 playbackOpened = true;
+                report.put("phase", "movie_resume");
+                report.put("movie_resume_observed", resumeMovie(title, report, longWatch));
                 report.put("start_action_sent", true);
                 report.put("phase", "movie_playback_observation");
-                observePlayback(title, report);
+                if (longWatch) {
+                    startFromBeginning(title, report);
+                    observeContinuity(title, report);
+                } else observePlayback(title, report);
             } else {
                 throw new ProbeFailure("unknown_mode");
             }
@@ -252,49 +265,194 @@ public final class NativeProbe extends Instrumentation {
         throw new ProbeFailure("native_control_not_found");
     }
 
-    private boolean resumeMovie(String title) throws Exception {
-        long deadline = SystemClock.elapsedRealtime() + 5000;
+    private boolean resumeMovie(String title, JSONObject report, boolean fromBeginning) throws Exception {
+        long deadline = SystemClock.elapsedRealtime() + 8000;
         while (SystemClock.elapsedRealtime() < deadline) {
-            boolean exactTitle = false;
+            int titleCount = 0;
+            boolean dialogControls = false;
             String resumeLabel = null;
+            String beginningLabel = null;
             int choices = 0;
             for (AccessibilityNodeInfo node : nodes()) {
                 if (!inApp(node)) continue;
                 String value = text(node);
-                if ("android:id/alertTitle".equals(node.getViewIdResourceName()) && value.equals(title)) {
-                    exactTitle = true;
-                }
-                if ("android.widget.Button".contentEquals(node.getClassName()) && node.isEnabled()
-                        && value.startsWith("Continuar desde ")) {
+                if (!node.isEditable() && value.equalsIgnoreCase(title)) titleCount++;
+                if ("android:id/alertTitle".equals(node.getViewIdResourceName())) dialogControls = true;
+                boolean button = "android.widget.Button".contentEquals(node.getClassName()) && node.isEnabled();
+                String lower = value.toLowerCase(Locale.ROOT);
+                if (button && lower.equals("desde inicio")) beginningLabel = value;
+                if (button && (lower.equals("desde inicio") || lower.equals("cancelar"))) dialogControls = true;
+                if (button && lower.startsWith("continuar desde ")) {
                     resumeLabel = value;
                     choices++;
                 }
             }
-            if (choices > 1) throw new ProbeFailure("ambiguous_movie_resume");
+            report.put("resume_title_count", titleCount);
+            report.put("resume_button_count", choices);
+            if (choices > 1 || titleCount > 1) throw new ProbeFailure("ambiguous_movie_resume");
             if (choices == 1) {
-                if (!exactTitle) throw new ProbeFailure("movie_resume_title_not_verified");
-                click(resumeLabel, false, 3);
+                if (titleCount != 1 || !dialogControls) throw new ProbeFailure("movie_resume_title_not_verified");
+                if (fromBeginning) {
+                    if (beginningLabel == null) throw new ProbeFailure("movie_beginning_control_not_verified");
+                    click(beginningLabel, false, 3);
+                    report.put("start_from_beginning_clicked", true);
+                } else click(resumeLabel, false, 3);
                 return true;
             }
-            if (playerTitle(title) || label("Contenido no disponible", false)) return false;
+            if (playerTitle(title)) return false;
+            if (label("Contenido no disponible", false)) throw new ProbeFailure("app_resource_unavailable_observed");
             SystemClock.sleep(250);
         }
-        return false;
+        throw new ProbeFailure("movie_start_not_observed");
+    }
+
+    private void startFromBeginning(String title, JSONObject report) throws Exception {
+        if (report.optBoolean("start_from_beginning_clicked")) return;
+        long deadline = SystemClock.elapsedRealtime() + 12000;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (playerTitle(title)) {
+                click("Desde inicio", false, 3);
+                report.put("start_from_beginning_clicked", true);
+                return;
+            }
+            revealControls();
+            SystemClock.sleep(300);
+        }
+        throw new ProbeFailure("movie_beginning_control_not_verified");
+    }
+
+    private long clockSeconds(String value) {
+        if (value == null || !value.matches("[0-9]{1,3}:[0-9]{2}(?::[0-9]{2})?")) return -1;
+        String[] parts = value.split(":");
+        long seconds = 0;
+        for (int index = 0; index < parts.length; index++) {
+            int part = Integer.parseInt(parts[index]);
+            if (index > 0 && part >= 60) return -1;
+            seconds = seconds * 60 + part;
+        }
+        return seconds <= 172800 ? seconds : -1;
+    }
+
+    private long idClock(AccessibilityNodeInfo root, String id) {
+        List<AccessibilityNodeInfo> found = root.findAccessibilityNodeInfosByViewId(APP + ":id/" + id);
+        if (found.size() != 1 || !found.get(0).isVisibleToUser()) return -1;
+        return clockSeconds(text(found.get(0)));
+    }
+
+    private long[] position() {
+        AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+        if (root == null) return new long[]{-1, -1, 0};
+        long current = idClock(root, "exo_position"), duration = idClock(root, "exo_duration");
+        if (current >= 0) return new long[]{current, duration, 1};
+        long fallback = -1;
+        int choices = 0;
+        for (AccessibilityNodeInfo node : nodes()) {
+            String type = String.valueOf(node.getClassName());
+            if (!inApp(node) || !(type.contains("SeekBar") || type.contains("TimeBar"))) continue;
+            long value = clockSeconds(String.valueOf(node.getContentDescription()));
+            if (value >= 0) { fallback = value; choices++; }
+        }
+        return choices == 1 ? new long[]{fallback, duration, 2} : new long[]{-1, duration, 0};
+    }
+
+    private void observeContinuity(String expectedTitle, JSONObject report) throws Exception {
+        final long limit = 360000;
+        long started = SystemClock.elapsedRealtime(), firstAt = -1, lastAt = -1;
+        long first = -1, last = -1, firstDuration = -1, lastDuration = -1;
+        long largestRegression = 0, firstImage = 0;
+        int regressions = 0, valid = 0, consecutive = 0, longest = 0, reveals = 0;
+        boolean selected = playerTitle(expectedTitle), audio = false, unavailable = false, atEnd = false;
+        int[] previousImage = null;
+        JSONArray timeline = new JSONArray();
+        while (SystemClock.elapsedRealtime() - started <= limit + 1000) {
+            long[] point = position();
+            if (point[0] < 0) {
+                revealControls(); reveals++;
+                SystemClock.sleep(150);
+                point = position();
+            }
+            long elapsed = SystemClock.elapsedRealtime() - started;
+            selected |= playerTitle(expectedTitle);
+            if (label("Contenido no disponible", false)) {
+                unavailable = true;
+                report.put("reason", "app_resource_unavailable_observed");
+            }
+            for (AccessibilityNodeInfo node : nodes()) {
+                String value = text(node);
+                if (inApp(node) && value.startsWith("SNAPTVNOW  ·  ")
+                        && !value.equals("SNAPTVNOW  ·  " + expectedTitle)) {
+                    unavailable = true;
+                    report.put("reason", "native_selected_resource_changed");
+                }
+            }
+            boolean activeAudio = audioTrackActive(); audio |= activeAudio;
+            int[] currentImage = picture();
+            boolean moving = rich(currentImage) && previousImage != null && changed(previousImage, currentImage);
+            previousImage = currentImage;
+            if (moving) {
+                if (firstImage == 0) firstImage = System.currentTimeMillis();
+                longest = Math.max(longest, ++consecutive);
+            } else consecutive = 0;
+            JSONObject sample = new JSONObject().put("elapsed_ms", elapsed)
+                .put("position_seconds", point[0] >= 0 ? point[0] : JSONObject.NULL)
+                .put("duration_seconds", point[1] >= 0 ? point[1] : JSONObject.NULL)
+                .put("source", point[2] == 1 ? "media3_ids" : point[2] == 2 ? "timebar_description" : "not_verified")
+                .put("moving_image", moving).put("audio_active", activeAudio);
+            AccessibilityNodeInfo root = automation.getRootInActiveWindow();
+            if (root != null) {
+                List<AccessibilityNodeInfo> bars = root.findAccessibilityNodeInfosByViewId(APP + ":id/exo_progress");
+                if (bars.size() == 1) {
+                    sample.put("timebar_enabled", bars.get(0).isEnabled());
+                    AccessibilityNodeInfo.RangeInfo range = bars.get(0).getRangeInfo();
+                    if (range != null) sample.put("timebar_range_min", range.getMin()).put("timebar_range_max", range.getMax());
+                }
+            }
+            timeline.put(sample);
+            if (point[0] >= 0 && (first >= 0 || point[0] <= 5)) {
+                if (first < 0) { first = point[0]; firstAt = elapsed; firstDuration = point[1]; }
+                if (last >= 0 && last - point[0] > 2) {
+                    regressions++; largestRegression = Math.max(largestRegression, last - point[0]);
+                }
+                last = point[0]; lastAt = elapsed; lastDuration = point[1]; valid++;
+            }
+            if (point[1] > 0 && point[0] >= point[1] - 1) atEnd = true;
+            if (unavailable || elapsed >= limit) break;
+            SystemClock.sleep(Math.min(5000, limit - elapsed));
+        }
+        long elapsed = SystemClock.elapsedRealtime() - started;
+        String state = unavailable ? "resource_unavailable" : regressions > 0 ? "position_regression_observed"
+            : first < 0 || valid < 12 ? "position_not_verified" : elapsed < limit ? "incomplete_observation"
+            : last - first >= 300 ? "advanced_without_regression" : "insufficient_progress";
+        report.put("phase", "movie_continuity_complete");
+        report.put("continuity_state", state);
+        report.put("position_samples", timeline);
+        report.put("position_sample_count", valid);
+        report.put("position_regressions", regressions);
+        report.put("largest_regression_seconds", largestRegression);
+        report.put("first_position_seconds", first);
+        report.put("last_position_seconds", last);
+        report.put("first_duration_seconds", firstDuration);
+        report.put("last_duration_seconds", lastDuration);
+        report.put("tracking_span_ms", firstAt >= 0 ? lastAt - firstAt : 0);
+        report.put("end_state_observed", atEnd);
+        report.put("reveal_input_count", reveals);
+        report.put("reveal_input_keycode", KeyEvent.KEYCODE_DPAD_UP);
+        report.put("reveal_input_purpose", "show_controls_for_timeline");
+        report.put("status", longest >= 4 ? "native_image_observed" : "not_verified");
+        report.put("title_selection_checked", selected);
+        report.put("moving_image_samples", longest);
+        report.put("audio_track_active", audio);
+        report.put("first_image_epoch_ms", firstImage);
+        report.put("observation_end_epoch_ms", System.currentTimeMillis());
+        report.put("observation_duration_ms", elapsed);
     }
 
     private void revealControls() {
-        Bitmap image = automation.takeScreenshot();
-        if (image == null) return;
-        float x = image.getWidth() * 0.5f;
-        float y = image.getHeight() * 0.18f;
-        image.recycle();
         long now = SystemClock.uptimeMillis();
-        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
-        MotionEvent up = MotionEvent.obtain(now, now + 30, MotionEvent.ACTION_UP, x, y, 0);
+        KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0);
+        KeyEvent up = new KeyEvent(now, now + 30, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP, 0);
         automation.injectInputEvent(down, true);
         automation.injectInputEvent(up, true);
-        down.recycle();
-        up.recycle();
     }
 
     private int[] picture() throws ProbeFailure {

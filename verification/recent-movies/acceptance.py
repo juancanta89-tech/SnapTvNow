@@ -120,6 +120,9 @@ def prepare_apk(directory):
 
 def probe(mode, password=None, title=None):
     parameters = ["am", "instrument", "-w", "-r", "-e", "mode", mode]
+    long_watch = mode == "movie" and os.environ.get("NATIVE_LONG_WATCH") == "true"
+    if long_watch:
+        parameters.extend(["-e", "long_watch", "true"])
     for key, value in (("password", password), ("title", title)):
         if value is not None:
             parameters.extend(["-e", key, str(value)])
@@ -134,7 +137,7 @@ def probe(mode, password=None, title=None):
     sampler = threading.Thread(target=sample_position, daemon=True)
     sampler.start()
     try:
-        output = command(["adb", "shell", shlex.join(parameters)], timeout=100)
+        output = command(["adb", "shell", shlex.join(parameters)], timeout=500 if long_watch else 100)
     finally:
         markers.append((time.time(), wav_position()))
         stop.set()
@@ -147,7 +150,13 @@ def probe(mode, password=None, title=None):
                        "observation_duration_ms", "origin_attempt_selection", "start_action_sent",
                        "movie_resume_observed", "phase", "exact_candidate_count",
                        "candidate_text_controls", "candidate_button_controls",
-                       "candidate_container_controls", "candidate_other_controls"}
+                       "candidate_container_controls", "candidate_other_controls",
+                       "resume_title_count", "resume_button_count", "start_from_beginning_clicked",
+                       "position_samples", "continuity_state", "position_sample_count",
+                       "position_regressions", "largest_regression_seconds", "first_position_seconds",
+                       "last_position_seconds", "first_duration_seconds", "last_duration_seconds",
+                       "tracking_span_ms", "end_state_observed", "position_source",
+                       "reveal_input_count", "reveal_input_keycode", "reveal_input_purpose"}
             clean = {key: value for key, value in result.items() if key in allowed}
             clean["_audio_markers"] = markers
             return clean
@@ -295,7 +304,7 @@ def recent_movie_targets(password):
     # Keep the comparison title already selected in the initial metadata report.
     comparisons = [row for row in valid if str(row["stream_id"]) == "38119"
                    and normalize_title(row["name"]) == normalize_title("La Odisea (2026)")]
-    selected = [first] + comparisons[:1]
+    selected = [first] if os.environ.get("NATIVE_LONG_WATCH") == "true" else [first] + comparisons[:1]
     token = None
     authentication_error = None
     try:
@@ -410,16 +419,30 @@ def wav_segment(path, start_offset, end_offset, minimum_seconds=2):
                 return {"audio_signal": "not_verified"}
             start = 44 + max(0, int(start_offset) - 44) // block * block
             end = 44 + max(0, int(end_offset) - 44) // block * block
-            if end - start > 16 * 1024 * 1024 or end <= start:
+            if end - start > 128 * 1024 * 1024 or end <= start:
                 return {"audio_signal": "not_verified"}
             source.seek(start)
-            samples = array.array("h", source.read(end - start))
-        seconds = len(samples) / (rate * channels)
+            remaining = end - start
+            count = nonzero = squares = peak = 0
+            while remaining > 0:
+                chunk = source.read(min(65536, remaining))
+                if not chunk:
+                    break
+                samples = array.array("h", chunk)
+                count += len(samples)
+                nonzero += sum(value != 0 for value in samples)
+                squares += sum(value * value for value in samples)
+                peak = max(peak, max((abs(value) for value in samples), default=0))
+                remaining -= len(chunk)
+        seconds = count / (rate * channels)
         if seconds < minimum_seconds:
             return {"audio_signal": "not_verified", "audio_sample_seconds": round(seconds, 2)}
-        rms = math.sqrt(sum(value * value for value in samples) / len(samples)) / 32768
-        return {"audio_signal": "observed" if rms > 0.001 else "not_observed",
-                "audio_rms": round(rms, 6), "audio_sample_seconds": round(seconds, 2)}
+        rms = math.sqrt(squares / count) / 32768
+        signal = "observed" if rms > 0.001 else "low_level" if nonzero else "not_observed"
+        return {"audio_signal": signal, "audio_rms": round(rms, 6),
+                "audio_nonzero_samples": nonzero, "audio_total_samples": count,
+                "audio_peak": round(peak / 32768, 6),
+                "audio_sample_seconds": round(seconds, 2)}
     except (KeyError, OSError, ValueError, struct.error):
         return {"audio_signal": "not_verified"}
 
@@ -441,7 +464,8 @@ def run(directory):
     preparation = json.loads((directory / "preparation.json").read_text())
     command(["adb", "install", str(directory / "official.apk")])
     command(["adb", "install", str(directory / "native-probe.apk")])
-    report = {"app": preparation, "test_account": USERNAME,
+    long_watch = os.environ.get("NATIVE_LONG_WATCH") == "true"
+    report = {"app": preparation, "test_account": USERNAME, "long_watch": long_watch,
               "started_epoch_ms": int(time.time() * 1000), "playback_attempts": 0, "cases": []}
     try:
         # Observe actual emulator PCM, checking a local synthetic tone before media.
@@ -473,6 +497,10 @@ def run(directory):
             safe_title(target.get("title"))
         if normalize_title(targets[0]["title"]) != normalize_title(REQUESTED_TITLE):
             raise CheckFailure("requested_movie_not_verified")
+        if long_watch:
+            if targets[0]["resource"] != "38111":
+                raise CheckFailure("requested_movie_reference_changed")
+            targets = targets[:1]
         if any(target["category_id"] != targets[0]["category_id"] for target in targets):
             raise CheckFailure("movie_category_mismatch")
         report["requested_section"] = metadata_report.get("requested_section")
@@ -498,9 +526,15 @@ def run(directory):
             case = dict(target, native=native, audio=sound, diagnostics=player_diagnostics(pid),
                         started_epoch_ms=case_started, finished_epoch_ms=int(time.time() * 1000),
                         current_reference_verified=True)
-            case["state"] = ("native_playback_observed" if native.get("status") == "native_image_observed"
-                             and native.get("audio_track_active") and sound["audio_signal"] == "observed"
-                             else "not_verified")
+            if long_watch:
+                continuous = (native.get("continuity_state") == "advanced_without_regression"
+                    and native.get("title_selection_checked") and native.get("observation_duration_ms", 0) >= 360000
+                    and native.get("moving_image_samples", 0) >= 4)
+                case["state"] = "native_continuity_observed" if continuous else "not_verified"
+            else:
+                case["state"] = ("native_playback_observed" if native.get("status") == "native_image_observed"
+                                 and native.get("audio_track_active") and sound["audio_signal"] == "observed"
+                                 else "not_verified")
             report["cases"].append(case)
             if native.get("start_action_sent"):
                 report["playback_attempts"] += 1
@@ -519,7 +553,8 @@ def run(directory):
             except CheckFailure:
                 report["cleanup"] = "not_verified"
         (directory / "native-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    if report["state"] != "completed" or any(case.get("state") != "native_playback_observed"
+    expected_state = "native_continuity_observed" if long_watch else "native_playback_observed"
+    if report["state"] != "completed" or any(case.get("state") != expected_state
                                              for case in report["cases"]):
         raise CheckFailure("native_acceptance_incomplete")
 

@@ -14,9 +14,10 @@ concurrency:
 jobs:
   movies:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 18
     env:
       LIVE_REQUESTED: ${{ contains(github.event.head_commit.message, '[native-playback]') }}
+      NATIVE_LONG_WATCH: ${{ contains(github.event.head_commit.message, '[continuity-6m]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Inspect the exact movie and one title in its category
