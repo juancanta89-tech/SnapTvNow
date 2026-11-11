@@ -252,7 +252,22 @@ def run(directory):
         try:
             targets.append(series_target(catalog("get_series_info", password, "30725")))
         except CheckFailure as error:
-            targets.append({"resource": "30725", "kind": "series", "state": str(error)})
+            failed = {"resource": "30725", "kind": "series", "state": str(error)}
+            if str(error) == "catalog_http_404":
+                try:
+                    rows = catalog("get_series", password)
+                    if not isinstance(rows, list):
+                        raise CheckFailure("series_catalog_not_verified")
+                    matches = [row for row in rows if isinstance(row, dict)
+                               and str(row.get("series_id", "")) == "30725"]
+                    failed["current_catalog_matches"] = len(matches)
+                    if len(matches) == 1:
+                        failed["title"] = safe_title(matches[0].get("name"))
+                    elif not matches:
+                        failed["reference_state"] = "absent_from_current_account_series_catalog"
+                except CheckFailure as catalog_error:
+                    failed["reference_state"] = str(catalog_error)
+            targets.append(failed)
         for target in targets:
             if "state" in target:
                 report["cases"].append(target)

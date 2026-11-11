@@ -308,19 +308,30 @@ public final class NativeProbe extends Instrumentation {
         return false;
     }
 
+    private boolean playerTitle(String expectedTitle) {
+        return label("SNAPTVNOW  ·  " + expectedTitle, false);
+    }
+
     private void observePlayback(String expectedTitle, JSONObject report) throws Exception {
         long started = System.currentTimeMillis();
         int[] previous = null;
         int consecutive = 0;
+        boolean selected = false;
         boolean audio = false;
         long firstImage = 0;
         for (int sample = 0; sample < 10; sample++) {
             SystemClock.sleep(2000);
-            if (!label(expectedTitle, false)) revealControls();
-            if (!label(expectedTitle, false)) {
+            audio |= audioTrackActive();
+            if (label("Canal no disponible", false) || label("Contenido no disponible", false)) {
+                report.put("reason", "app_resource_unavailable_observed");
+                break;
+            }
+            if (!playerTitle(expectedTitle)) revealControls();
+            if (!playerTitle(expectedTitle)) {
                 consecutive = 0;
                 continue;
             }
+            selected = true;
             int[] current = picture();
             boolean visible = rich(current);
             boolean moving = visible && previous != null && changed(previous, current);
@@ -333,7 +344,7 @@ public final class NativeProbe extends Instrumentation {
             if (consecutive >= 4) break;
         }
         report.put("status", consecutive >= 4 ? "native_image_observed" : "not_verified");
-        report.put("title_selection_checked", consecutive >= 4);
+        report.put("title_selection_checked", selected);
         report.put("moving_image_samples", consecutive);
         report.put("audio_track_active", audio);
         report.put("first_image_epoch_ms", firstImage);
