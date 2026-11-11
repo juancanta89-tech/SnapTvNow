@@ -130,7 +130,7 @@ def probe(mode, password=None, title=None, episode_title=None, episode_index=Non
                        "audio_track_active", "first_image_epoch_ms", "observation_end_epoch_ms",
                        "observation_duration_ms", "origin_attempt_selection", "start_action_sent",
                        "pre_play_wait_ms", "episode_picker_observed", "controls", "component",
-                       "login_submission_actions"}
+                       "login_submission_actions", "initial_download_actions", "catalogue_wait_ms"}
             clean = {key: value for key, value in result.items() if key in allowed}
             clean["_audio_markers"] = markers
             return clean
@@ -301,6 +301,11 @@ def run(directory):
         report["login"].pop("_audio_markers", None)
         if report["login"].get("status") != "login_observed":
             raise CheckFailure("native_login_not_observed")
+        report["native_catalogue"] = probe("fgt_catalogue")
+        report["native_catalogue"].pop("_audio_markers", None)
+        if report["native_catalogue"].get("status") != "catalogue_ready":
+            report["cases"] = [dict(target,state="not_verified",reason="native_catalogue_not_ready") for target in targets]
+            raise CheckFailure("fgt_native_catalogue_not_ready")
         for target_index, target in enumerate(targets):
             if "state" in target:
                 report["cases"].append(target)

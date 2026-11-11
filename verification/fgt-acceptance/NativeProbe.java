@@ -54,6 +54,9 @@ public final class NativeProbe extends Instrumentation {
             } else if (mode.equals("fgt_login")) {
                 fgtLogin(arguments.getString("password", ""), report);
                 report.put("status", "login_observed");
+            } else if (mode.equals("fgt_catalogue")) {
+                fgtCatalogue(report);
+                report.put("status","catalogue_ready");
             } else if (mode.equals("fgt_live")) {
                 String title = arguments.getString("title", "");
                 if (title.isEmpty()) throw new ProbeFailure("missing_exact_title");
@@ -566,6 +569,38 @@ public final class NativeProbe extends Instrumentation {
             SystemClock.sleep(400);
         }
         throw new ProbeFailure("fgt_exact_resource_not_selected");
+    }
+
+    private void fgtCatalogue(JSONObject report) throws Exception {
+        launch();
+        long started=SystemClock.elapsedRealtime(),deadline=started+90000;
+        boolean requested=false;
+        while(SystemClock.elapsedRealtime()<deadline) {
+            boolean initialDownload=false, retry=false;
+            for(AccessibilityNodeInfo node:nodes()) {
+                if(!inApp(node))continue;
+                String id=String.valueOf(node.getViewIdResourceName());
+                if(id.endsWith(":id/ll_last_updated_live")) {
+                    report.put("initial_download_actions",requested?1:0);
+                    report.put("catalogue_wait_ms",SystemClock.elapsedRealtime()-started);
+                    return;
+                }
+                if(id.endsWith(":id/tv_download_text_live")) {
+                    String value=text(node).toLowerCase();
+                    initialDownload=value.equals("download")||value.equals("descargar")||value.equals("descarga");
+                    retry=value.equals("retry")||value.equals("reintentar");
+                }
+            }
+            if(requested && retry)throw new ProbeFailure("fgt_catalogue_download_failed");
+            // With a fresh profile, this button starts only the initial metadata
+            // download (confirmed in the original FGT dashboard implementation).
+            // Once ready, never press it again or open its default TV channel.
+            if(!requested && (initialDownload||retry) && fgtId("live_tv")) {
+                requested=true;report.put("initial_download_actions",1);
+            }
+            SystemClock.sleep(500);
+        }
+        throw new ProbeFailure("fgt_catalogue_download_not_observed");
     }
 
     private String fgtComponent() {
