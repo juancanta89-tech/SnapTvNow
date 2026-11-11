@@ -54,7 +54,8 @@ public final class NativeProbe extends Instrumentation {
                 if (mode.equals("series")) {
                     String episode = arguments.getString("episode_title", "");
                     if (episode.isEmpty()) throw new ProbeFailure("missing_exact_episode");
-                    clickEpisode(episode, arguments.getString("episode_index", ""));
+                    clickEpisode(episode, arguments.getString("episode_index", ""),
+                            "35000".equals(arguments.getString("pre_play_wait_ms", "0")) ? 35000 : 0, report);
                     title = episode;
                 }
                 playbackOpened = true;
@@ -232,7 +233,7 @@ public final class NativeProbe extends Instrumentation {
         click(title, false, 3);
     }
 
-    private void clickEpisode(String title, String indexValue) throws Exception {
+    private void clickEpisode(String title, String indexValue, int pauseMs, JSONObject report) throws Exception {
         int index;
         try { index = Integer.parseInt(indexValue); }
         catch (NumberFormatException error) { throw new ProbeFailure("episode_position_not_verified"); }
@@ -251,6 +252,15 @@ public final class NativeProbe extends Instrumentation {
             }
             if (matches.size() > 1) throw new ProbeFailure("ambiguous_episode_selection");
             if (matches.size() == 1) {
+                if (pauseMs > 0) {
+                    long pausedAt = SystemClock.elapsedRealtime();
+                    SystemClock.sleep(pauseMs);
+                    report.put("pre_play_wait_ms", SystemClock.elapsedRealtime() - pausedAt);
+                    report.put("episode_picker_observed", true);
+                    deadline += pauseMs;
+                    pauseMs = 0;
+                    continue;
+                }
                 AccessibilityNodeInfo row = matches.get(0);
                 if (row.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
                 Rect bounds = new Rect(); row.getBoundsInScreen(bounds);

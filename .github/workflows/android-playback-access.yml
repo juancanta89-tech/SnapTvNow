@@ -18,6 +18,7 @@ jobs:
     env:
       LIVE_REQUESTED: ${{ contains(github.event.head_commit.message, '[native-playback]') }}
       NATIVE_SCOPE: ${{ contains(github.event.head_commit.message, '[series-only]') && 'series' || 'all' }}
+      NATIVE_COLD_SERIES: ${{ contains(github.event.head_commit.message, '[cold-series]') }}
     steps:
       - name: Require the explicitly configured test login for a live run
         if: env.LIVE_REQUESTED == 'true'

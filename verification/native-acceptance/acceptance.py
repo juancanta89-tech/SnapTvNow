@@ -117,6 +117,8 @@ def prepare_apk(directory):
 
 def probe(mode, password=None, title=None, episode_title=None, episode_index=None):
     parameters = ["am", "instrument", "-w", "-r", "-e", "mode", mode]
+    if mode == "series" and os.environ.get("NATIVE_COLD_SERIES") == "true":
+        parameters.extend(["-e", "pre_play_wait_ms", "35000"])
     for key, value in (("password", password), ("title", title), ("episode_title", episode_title), ("episode_index", episode_index)):
         if value is not None:
             parameters.extend(["-e", key, str(value)])
@@ -141,7 +143,8 @@ def probe(mode, password=None, title=None, episode_title=None, episode_index=Non
             result = json.loads(line.partition("native_report=")[2])
             allowed = {"mode", "status", "reason", "title_selection_checked", "moving_image_samples",
                        "audio_track_active", "first_image_epoch_ms", "observation_end_epoch_ms",
-                       "observation_duration_ms", "origin_attempt_selection", "start_action_sent"}
+                       "observation_duration_ms", "origin_attempt_selection", "start_action_sent",
+                       "pre_play_wait_ms", "episode_picker_observed"}
             clean = {key: value for key, value in result.items() if key in allowed}
             clean["_audio_markers"] = markers
             return clean
