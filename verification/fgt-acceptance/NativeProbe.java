@@ -558,13 +558,33 @@ public final class NativeProbe extends Instrumentation {
         }
         if (!searched) throw new ProbeFailure("fgt_search_not_identified");
         deadline=SystemClock.elapsedRealtime()+18000;
+        boolean resultsTab=false;
+        int resultScrolls=0;
         while(SystemClock.elapsedRealtime()<deadline) {
+            // The original FGT activity's live tab explicitly makes the result
+            // grid visible. Activate it after the asynchronous query finishes.
+            if(!resultsTab && fgtId("live_channels_tab")) {
+                resultsTab=true;
+                automation.injectInputEvent(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_DOWN),true);
+                automation.injectInputEvent(new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_DOWN),true);
+                SystemClock.sleep(400);
+            }
             if (fgtClick(title)) {
                 report.put("start_action_sent",true);
                 SystemClock.sleep(1500);
                 // Expanding this one selected preview is not another channel start.
                 if (!fgtComponent().toLowerCase().contains("player")) fgtId("full_screen");
                 return;
+            }
+            if(resultsTab && resultScrolls<3) {
+                for(AccessibilityNodeInfo node:nodes()) {
+                    if(inApp(node) && String.valueOf(node.getViewIdResourceName()).endsWith(":id/live_recycler_view")
+                            && node.isScrollable()) {
+                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                        resultScrolls++;
+                        break;
+                    }
+                }
             }
             SystemClock.sleep(400);
         }
