@@ -99,12 +99,12 @@ def prepare_apk(directory):
     return evidence
 
 
-def probe(mode, password=None, title=None, episode_title=None, episode_index=None):
+def probe(mode, password=None, title=None, episode_title=None, episode_index=None, query=None):
     native_mode = {"login": "fgt_login", "live": "fgt_live"}.get(mode, mode)
     parameters = ["am", "instrument", "-w", "-r", "-e", "mode", native_mode]
     if mode == "series" and os.environ.get("NATIVE_COLD_SERIES") == "true":
         parameters.extend(["-e", "pre_play_wait_ms", "35000"])
-    for key, value in (("password", password), ("title", title), ("episode_title", episode_title), ("episode_index", episode_index)):
+    for key, value in (("password", password), ("title", title), ("episode_title", episode_title), ("episode_index", episode_index), ("query", query)):
         if value is not None:
             parameters.extend(["-e", key, str(value)])
     parameters.append("com.snaptvnow.nativeprobe/.NativeProbe")
@@ -176,7 +176,9 @@ def live_targets(rows):
         if sum(isinstance(row, dict) and str(row.get("name", "")).strip() == title for row in rows) != 1:
             targets.append({"resource": public_id, "kind": "live", "state": "ambiguous_catalog_title"})
             continue
-        target = {"resource": public_id, "kind": "live", "title": title}
+        query = re.sub(r"\([^)]*\)", " ", title)
+        query = re.sub(r"^[A-Z]{2,4}-", "", query).strip()
+        target = {"resource": public_id, "kind": "live", "title": title, "search_query": query}
         # Only numeric public/source references may leave the normal catalogue read.
         profile = matches[0].get("smn_profile")
         if isinstance(profile, dict) and profile.get("type") == "live":
@@ -231,6 +233,22 @@ def audio_evidence(path, markers, native):
     start_offset = min(markers, key=lambda mark: abs(mark[0] - first - 1))[1]
     end_offset = min(markers, key=lambda mark: abs(mark[0] - end + 0.5))[1]
     return wav_segment(path, start_offset, end_offset)
+
+
+def parser_evidence():
+    # Read only this test app's errors. Retain field names and exception classes,
+    # never raw log lines, intent extras, credentials or media addresses.
+    try:
+        pid = command(["adb", "shell", "pidof " + PACKAGE], timeout=10).strip().split()[0]
+        if not pid.isdigit():
+            return {"state": "not_verified"}
+        raw = command(["adb", "logcat", "-d", "-v", "brief", "--pid=" + pid, "-t", "400"], timeout=10)
+        fields = sorted(set(re.findall(r"JSONException: No value for ([A-Za-z_][A-Za-z_0-9]{0,63})", raw)))
+        exceptions = [value for value in ["org.json.JSONException", "android.database.sqlite.SQLiteException",
+                                          "java.lang.NullPointerException"] if value in raw]
+        return {"state": "read", "missing_fields": fields, "exception_classes": exceptions}
+    except (CheckFailure, IndexError):
+        return {"state": "not_verified"}
 
 
 def run(directory):
@@ -289,7 +307,7 @@ def run(directory):
                 continue
             native = {}
             try:
-                native = probe(target["kind"], title=target["title"],
+                native = probe(target["kind"], title=target["title"], query=target.get("search_query"),
                                episode_title=target.get("episode_title"), episode_index=target.get("episode_index"))
             except CheckFailure as error:
                 if str(error) == "native_command_timeout":
@@ -315,6 +333,7 @@ def run(directory):
         report["reason"] = str(error)
     finally:
         report["finished_epoch_ms"] = int(time.time() * 1000)
+        report["parser_evidence"] = parser_evidence()
         if os.environ.get("QEMU_WAV_PATH"):
             Path(os.environ["QEMU_WAV_PATH"]).unlink(missing_ok=True)
         (directory / "native-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")

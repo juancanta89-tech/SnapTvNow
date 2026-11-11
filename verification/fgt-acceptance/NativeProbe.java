@@ -519,17 +519,32 @@ public final class NativeProbe extends Instrumentation {
 
     private void fgtSearch(String title, JSONObject report) throws Exception {
         long deadline = SystemClock.elapsedRealtime()+30000;
-        boolean entered = false, searched = false;
+        boolean entered = false, searched = false, liveTab = false;
         while (SystemClock.elapsedRealtime()<deadline) {
-            if (!entered && fgtClick("LIVE TV","Live TV","TV EN VIVO","TV en vivo")) {
-                entered=true;SystemClock.sleep(1200);continue;
+            // Use the dashboard's global search directly. Opening the TV
+            // dashboard can select its first channel before our exact target.
+            if (!entered && fgtId("ll_search")) {
+                entered=true;SystemClock.sleep(600);continue;
+            }
+            if (!liveTab && fgtId("live_channels_tab")) {
+                liveTab=true;SystemClock.sleep(300);continue;
             }
             List<AccessibilityNodeInfo> fields=editable();
             if (fields.size()==1) {
                 fields.get(0).performAction(AccessibilityNodeInfo.ACTION_FOCUS);
-                fill(fields.get(0),title);
+                fill(fields.get(0),arguments.getString("query",title));
                 automation.injectInputEvent(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_ENTER),true);
                 automation.injectInputEvent(new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_ENTER),true);
+                // FGT's TV search grid is below the Leanback editor. The IME
+                // can cover its rows even though the app has found results.
+                SystemClock.sleep(350);
+                for (AccessibilityWindowInfo window : automation.getWindows()) {
+                    if (window.getType()==AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                        automation.performGlobalAction(1);
+                        SystemClock.sleep(400);
+                        break;
+                    }
+                }
                 searched=true;
                 break;
             }
@@ -586,6 +601,12 @@ public final class NativeProbe extends Instrumentation {
             for(String safe:new String[]{"TV","Mobile","LIVE TV","Live TV","TV EN VIVO","TV en vivo","ADD USER","Add User","Search","SEARCH","Buscar","LOGIN","Login","SAVE","Save","ACEPTAR","Aceptar","ACCEPT","Accept","I AGREE","I Agree"})
                 if(value.equalsIgnoreCase(safe))item.put("label",safe);
             if(value.equals(arguments.getString("title",""))&&!value.isEmpty())item.put("exact_resource_label",true);
+            if(id.endsWith("tv_download_text_live")) {
+                String status=value.toLowerCase();
+                if(status.contains("downloading")||status.contains("descargando"))item.put("catalogue_state","loading");
+                else if(status.contains("download")||status.contains("descargar"))item.put("catalogue_state","download_required");
+                else if(status.contains("update")||status.contains("actualiz"))item.put("catalogue_state","update_label");
+            }
             result.put(item);
         }
         return result;
