@@ -536,16 +536,33 @@ public class MainActivity extends Activity {
     final XtreamClient session=client;final int generation=profileGeneration;final XtreamClient.Group group=activeGroup;final String category=activeGroupSection;
     new Thread(()->{try{
       List<String> servers=AppConfig.load(this);XtreamClient connected=session.reconnect(servers);
+      runOnUiThread(()->{
+        if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;
+        try{SessionStore.save(this,connected);}catch(Exception e){refreshing=false;if(refreshButton!=null)refreshButton.setText("Actualizar contenido");Toast.makeText(this,"No se pudo guardar la sesión actualizada.",Toast.LENGTH_LONG).show();return;}
+        boolean moved=!java.util.Objects.equals(session.server(),connected.server());
+        AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();client=connected;bindProfile();prepareHistoryRecovery(session,connected);
+        searchIndex=null;searchClient=null;
+        if(moved){items=new ArrayList<>();seen.clear();recentlyPlayed.clear();activeGroup=null;activeGroupSection="";loadedSection="";render();}
+        // Persist the validated destination before loading its catalog. A slow
+        // category must never put this account back on its deleted CCF line.
+        refreshConnectedContent(connected,profileGeneration,group,category,moved);
+      });
+    }catch(Exception e){runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;refreshing=false;if(refreshButton!=null)refreshButton.setText("Actualizar contenido");new AlertDialog.Builder(this).setTitle("No se pudo actualizar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
+  }
+  private void refreshConnectedContent(XtreamClient connected,int generation,XtreamClient.Group group,String category,boolean moved){
+    new Thread(()->{try{
       XtreamClient.Group matched=null;
       if(group!=null&&!category.isEmpty())for(XtreamClient.Group candidate:connected.categories(category))
         if(candidate.name.equalsIgnoreCase(group.name)){matched=candidate;break;}
-      List<Catalog.Item> updated=matched!=null?connected.loadCategory(category,matched.id,matched.name):new ArrayList<>();
-      final XtreamClient.Group newGroup=matched;
-      runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;try{SessionStore.save(this,connected);}catch(Exception e){refreshing=false;Toast.makeText(this,"No se pudo guardar la sesión actualizada.",Toast.LENGTH_LONG).show();return;}AppConfig.rememberWorking(this,connected.server());XtreamClient.SERVER=connected.server();client=connected;bindProfile();prepareHistoryRecovery(session,connected);items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
-        searchIndex=null;searchClient=null;activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
+      List<Catalog.Item> updated=matched!=null?connected.loadCategory(category,matched.id,matched.name):new ArrayList<>();final XtreamClient.Group newGroup=matched;
+      runOnUiThread(()->{if(client!=connected||generation!=profileGeneration||isFinishing()||isDestroyed())return;
+        items=updated;seen.clear();recentlyPlayed.clear();for(Catalog.Item item:updated)seen.put(item.id,item);
+        activeGroup=newGroup;activeGroupSection=newGroup==null?"":category;loadedSection=newGroup==null?"":category;refreshing=false;render();loadAdvertisement();
         if(refreshButton!=null){refreshButton.setText("100% actualizado");TextView finished=refreshButton;controlHandler.postDelayed(()->{if(refreshButton==finished)finished.setText("Actualizar contenido");},2200);}
       });
-    }catch(Exception e){runOnUiThread(()->{if(client!=session||generation!=profileGeneration||isFinishing()||isDestroyed())return;refreshing=false;if(refreshButton!=null)refreshButton.setText("Actualizar contenido");new AlertDialog.Builder(this).setTitle("No se pudo actualizar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();
+    }catch(Exception error){runOnUiThread(()->{if(client!=connected||generation!=profileGeneration||isFinishing()||isDestroyed())return;
+      refreshing=false;render();loadAdvertisement();new AlertDialog.Builder(this).setTitle("Contenido pendiente").setMessage(moved?"Tu conexión se actualizó. No se pudo cargar el contenido; pulsa Actualizar contenido para reintentar.":"No se pudo cargar el contenido. Tu sesión se conserva; pulsa Actualizar contenido para reintentar.").setPositiveButton("Aceptar",null).show();
+    });}}).start();
   }
   private void hero(String headline,String sub,Runnable target){
     FrameLayout frame=new FrameLayout(this);frame.setBackgroundResource(R.drawable.entertainment_hero);frame.setClipToOutline(true);body.addView(frame,new LinearLayout.LayoutParams(-1,d(wide?230:260)));

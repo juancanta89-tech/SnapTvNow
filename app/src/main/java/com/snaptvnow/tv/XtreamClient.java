@@ -49,6 +49,9 @@ public final class XtreamClient {
   public static XtreamClient loginAny(List<String> servers,String username,String password,LoginProgress progress) throws Exception {
     return attemptLogin(servers,username,password,(server,user,pass)->request(server,user,pass,"",null,5000,8000,256_000),progress);
   }
+  static final class AccountDenied extends Exception {
+    AccountDenied(String status){super("La línea está "+status);}
+  }
   static XtreamClient attemptLogin(List<String> servers,String username,String password,LoginRequest transport,LoginProgress progress) throws Exception {
     if(servers.isEmpty())throw new Exception("No hay servidores habilitados");
     boolean rejected=false,denied=false,limited=false;String inactiveStatus=null;
@@ -61,8 +64,14 @@ public final class XtreamClient {
         if(info==null)continue;
         if(info.optInt("auth",0)!=1){rejected=true;continue;}
         String status=info.optString("status","");
-        if(!status.equalsIgnoreCase("Active")){inactiveStatus=status;continue;}
+        if(!status.equalsIgnoreCase("Active")){
+          // An authenticated account on our official service is authoritative.
+          // Another DNS must not revive an expired or suspended managed line.
+          if(ProfileReference.managed(server))throw new AccountDenied(status);
+          inactiveStatus=status;continue;
+        }
         return new XtreamClient(server,username,password,info.optString("exp_date",""),info.optString("max_connections",""));
+      }catch(AccountDenied deniedAccount){throw deniedAccount;
       }catch(HttpFailure error){
         if(error.status==401)rejected=true;
         else if(error.status==403)denied=true;
@@ -76,8 +85,17 @@ public final class XtreamClient {
   }
   public XtreamClient reconnect(List<String> servers) throws Exception {return loginAny(reconnectServers(servers,sourceServer),username,password);}
   static List<String> reconnectServers(List<String> enabled,String previous){
-    List<String> ordered=new ArrayList<>(enabled);
-    if(previous!=null&&ordered.remove(previous))ordered.add(0,previous);
+    List<String> ordered=new ArrayList<>(),legacy=new ArrayList<>();
+    boolean managed=ProfileReference.managed(previous);
+    for(String server:enabled){
+      if(ProfileReference.managed(server))ordered.add(server);
+      else if(!managed)legacy.add(server);
+    }
+    // Keep only explicitly enabled official endpoints after the first verified
+    // migration. Even an outage must not fall back to stale legacy access.
+    if(managed){if(ordered.remove(previous))ordered.add(0,previous);return ordered;}
+    if(previous!=null&&legacy.remove(previous))legacy.add(0,previous);
+    ordered.addAll(legacy);
     return ordered;
   }
   public static final class Group {public final String id,name;public Group(String id,String name){this.id=id;this.name=name;}}
