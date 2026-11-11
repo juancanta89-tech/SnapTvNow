@@ -122,11 +122,17 @@ public final class NativeProbe extends Instrumentation {
         }
     }
 
+    private boolean matchesLabel(String value, String expected, boolean navigation) {
+        if (value.equals(expected)) return true;
+        if (!navigation || !value.endsWith(expected)) return false;
+        String prefix = value.substring(0, value.length() - expected.length());
+        return prefix.matches("[^\\p{L}\\p{N}]*");
+    }
+
     private boolean label(String label, boolean navigation) {
         for (AccessibilityNodeInfo node : nodes()) {
             String value = text(node);
-            if (inApp(node) && !node.isEditable() && (value.equals(label)
-                    || navigation && value.endsWith("  " + label))) return true;
+            if (inApp(node) && !node.isEditable() && (matchesLabel(value, label, navigation))) return true;
         }
         return false;
     }
@@ -137,8 +143,7 @@ public final class NativeProbe extends Instrumentation {
             List<AccessibilityNodeInfo> candidates = new ArrayList<>();
             for (AccessibilityNodeInfo node : nodes()) {
                 String value = text(node);
-                if (!inApp(node) || node.isEditable() || !(value.equals(label)
-                        || navigation && value.endsWith("  " + label))) continue;
+                if (!inApp(node) || node.isEditable() || !(matchesLabel(value, label, navigation))) continue;
                 AccessibilityNodeInfo clickable = node;
                 while (clickable != null && !clickable.isClickable()) clickable = clickable.getParent();
                 if (clickable == null || !clickable.isEnabled()) continue;
@@ -182,11 +187,24 @@ public final class NativeProbe extends Instrumentation {
             if (label("TV en vivo", true) && editable().isEmpty()) return;
             SystemClock.sleep(350);
         }
-        throw new ProbeFailure("app_login_not_observed");
+        throw new ProbeFailure("app_login_not_observed_" + loginUiState());
+    }
+
+    private String loginUiState() {
+        if (label("TV en vivo", true) && editable().isEmpty()) return "home";
+        if (label("Más tarde", false)) return "update_prompt";
+        for (AccessibilityNodeInfo node : nodes()) {
+            if (!inApp(node)) continue;
+            String value = text(node);
+            if (value.startsWith("Obteniendo servidores") || value.startsWith("Probando servidor")) return "connecting";
+            if ("android:id/alertTitle".equals(node.getViewIdResourceName())) return "dialog";
+        }
+        if (editable().size() == 2) return "login_form";
+        return "other";
     }
 
     private void search(String scope, String title) throws Exception {
-        if (!label("Buscar en todas las carpetas", false)) click("Buscar", true, 12);
+        if (!label("Buscar en todas las carpetas", false)) click("⌕", false, 12);
         click(scope, false, 8);
         long deadline = SystemClock.elapsedRealtime() + 8000;
         List<AccessibilityNodeInfo> fields = editable();
