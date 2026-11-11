@@ -166,6 +166,19 @@ def catalog(action, password, **extra):
         raise CheckFailure("catalog_not_verified") from None
 
 
+def account_api(body):
+    request = urllib.request.Request("https://api.snaptvnow.com/",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"})
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=15) as response:
+            return json.loads(limited_read(response, 2 * 1024 * 1024))
+    except urllib.error.HTTPError as error:
+        raise CheckFailure("origin_metadata_http_" + str(error.code)) from None
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        raise CheckFailure("origin_metadata_not_verified") from None
+
+
 def safe_title(value):
     if not isinstance(value, str) or not value.strip() or len(value) > 180:
         raise CheckFailure("catalog_title_not_verified")
@@ -201,6 +214,22 @@ def scalar_metadata(source, keys):
     return result
 
 
+def detail_metadata(details):
+    movie = details.get("movie_data") if isinstance(details.get("movie_data"), dict) else {}
+    info = details.get("info") if isinstance(details.get("info"), dict) else {}
+    return {
+        "state": "metadata_observed",
+        "extension": scalar_metadata(movie, ("container_extension",)).get("container_extension"),
+        "video": scalar_metadata(info.get("video"), ("codec_name", "profile", "width", "height",
+            "pix_fmt", "bits_per_raw_sample", "bits_per_sample", "bit_rate", "duration",
+            "format", "codec_tag_string", "color_primaries")),
+        "audio": scalar_metadata(info.get("audio"), ("codec_name", "profile", "channels",
+            "sample_rate", "sample_fmt", "bits_per_raw_sample", "bits_per_sample", "bit_rate",
+            "duration", "format", "codec_tag_string")),
+        "format": scalar_metadata(info, ("duration_secs", "duration", "bitrate", "bit_rate", "format")),
+    }
+
+
 def movie_details(target, password):
     try:
         details = catalog("get_vod_info", password, vod_id=target["resource"])
@@ -209,21 +238,27 @@ def movie_details(target, password):
         movie = details["movie_data"]
         if str(movie.get("stream_id", "")) != target["resource"]:
             raise CheckFailure("movie_detail_reference_mismatch")
-        info = details.get("info") if isinstance(details.get("info"), dict) else {}
-        target["detail"] = {
-            "state": "metadata_observed",
-            "extension": scalar_metadata(movie, ("container_extension",)).get("container_extension"),
-            "video": scalar_metadata(info.get("video"), ("codec_name", "profile", "width", "height",
-                "pix_fmt", "bits_per_raw_sample", "bits_per_sample", "bit_rate", "duration",
-                "format", "codec_tag_string", "color_primaries")),
-            "audio": scalar_metadata(info.get("audio"), ("codec_name", "profile", "channels",
-                "sample_rate", "sample_fmt", "bits_per_raw_sample", "bits_per_sample", "bit_rate",
-                "duration", "format", "codec_tag_string")),
-            "format": scalar_metadata(info, ("duration_secs", "duration", "bitrate", "bit_rate", "format")),
-        }
+        target["detail"] = detail_metadata(details)
     except CheckFailure as error:
         target["detail"] = {"state": "not_verified", "reason": str(error)}
     return target
+
+
+def origin_movie_details(reference, token):
+    if (not isinstance(reference, dict) or reference.get("type") != "movie"
+            or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,180}", str(reference.get("id", "")))
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", str(reference.get("server", "")))):
+        return {"state": "not_verified", "reason": "origin_reference_not_verified"}
+    try:
+        details = account_api({"op": "vod_info", "access_token": token,
+                               "server": reference["server"], "vod_id": reference["id"]})
+        if not isinstance(details, dict) or not isinstance(details.get("movie_data"), dict):
+            raise CheckFailure("origin_detail_not_verified")
+        if str(details["movie_data"].get("stream_id", "")) != str(reference["id"]):
+            raise CheckFailure("origin_detail_reference_mismatch")
+        return detail_metadata(details)
+    except CheckFailure as error:
+        return {"state": "not_verified", "reason": str(error)}
 
 
 def recent_movie_targets(password):
@@ -255,17 +290,28 @@ def recent_movie_targets(password):
              and isinstance(row.get("name"), str) and title_counts.get(row["name"].strip()) == 1]
     if first not in valid:
         raise CheckFailure("movie_native_title_not_unique")
-    def order(row):
-        added = str(row.get("added", "0"))
-        return (int(added) if added.isdigit() else 0, int(row["stream_id"]))
-    others = sorted((row for row in valid if row is not first), key=order, reverse=True)
-    selected = [first] + others[:1]
+    # Keep the comparison title already selected in the initial metadata report.
+    comparisons = [row for row in valid if str(row["stream_id"]) == "38119"
+                   and normalize_title(row["name"]) == normalize_title("La Odisea (2026)")]
+    selected = [first] + comparisons[:1]
+    token = None
+    authentication_error = None
+    try:
+        authenticated = account_api({"op": "auth", "username": USERNAME, "password": password})
+        token = authenticated.get("access_token") if isinstance(authenticated, dict) else None
+        if not isinstance(token, str) or not token or len(token) > 8192:
+            raise CheckFailure("origin_auth_not_verified")
+    except CheckFailure as error:
+        authentication_error = str(error)
     targets = []
     for row in selected:
         target = {"resource": str(row["stream_id"]), "kind": "movie", "title": safe_title(row["name"]),
                   "category_id": category_id, "category_name": category_name,
                   "listing_extension": scalar_metadata(row, ("container_extension",)).get("container_extension")}
-        targets.append(movie_details(target, password))
+        movie_details(target, password)
+        target["raw_origin_detail"] = (origin_movie_details(row.get("smn_profile"), token) if token else
+            {"state": "not_verified", "reason": authentication_error or "origin_auth_not_verified"})
+        targets.append(target)
     return {"state": "metadata_observed", "requested_section": "Recién agregados",
             "category_name": category_name, "category_id": category_id,
             "category_movies": len(same_category), "targets": targets}
