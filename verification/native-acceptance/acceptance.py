@@ -12,6 +12,8 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import struct
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -120,14 +122,29 @@ def probe(mode, password=None, title=None, episode_title=None):
             parameters.extend(["-e", key, value])
     parameters.append("com.snaptvnow.nativeprobe/.NativeProbe")
     # adb sends one shell string. Quote every argument, including credentials and catalog titles.
-    output = command(["adb", "shell", shlex.join(parameters)], timeout=100)
+    markers = []
+    stop = threading.Event()
+    def sample_position():
+        while not stop.is_set():
+            markers.append((time.time(), wav_position()))
+            stop.wait(0.1)
+    sampler = threading.Thread(target=sample_position, daemon=True)
+    sampler.start()
+    try:
+        output = command(["adb", "shell", shlex.join(parameters)], timeout=100)
+    finally:
+        markers.append((time.time(), wav_position()))
+        stop.set()
+        sampler.join(timeout=1)
     for line in output.splitlines():
         if line.startswith("INSTRUMENTATION_RESULT: native_report="):
             result = json.loads(line.partition("native_report=")[2])
             allowed = {"mode", "status", "reason", "title_selection_checked", "moving_image_samples",
                        "audio_track_active", "first_image_epoch_ms", "observation_end_epoch_ms",
                        "observation_duration_ms", "origin_attempt_selection", "start_action_sent"}
-            return {key: value for key, value in result.items() if key in allowed}
+            clean = {key: value for key, value in result.items() if key in allowed}
+            clean["_audio_markers"] = markers
+            return clean
     raise CheckFailure("native_report_missing")
 
 
@@ -217,27 +234,48 @@ def series_target(password):
             "episode_title": episode_title, "episode_selection": "exact_public_episode_id"}
 
 
-def audio_evidence(path, captured_at, native):
-    first = native.get("first_image_epoch_ms", 0) / 1000
-    end = native.get("observation_end_epoch_ms", 0) / 1000
-    if first <= 0 or end - first < 4:
-        return {"audio_signal": "not_verified"}
+def wav_position():
     try:
-        with wave.open(str(path), "rb") as source:
-            if source.getnchannels() != 1 or source.getsampwidth() != 2:
+        return max(44, Path(os.environ["QEMU_WAV_PATH"]).stat().st_size)
+    except (KeyError, OSError):
+        return 44
+
+
+def wav_segment(path, start_offset, end_offset, minimum_seconds=2):
+    try:
+        with open(path, "rb") as source:
+            header = source.read(44)
+            if (len(header) != 44 or header[:4] != b"RIFF" or header[8:16] != b"WAVEfmt "
+                    or header[36:40] != b"data"):
                 return {"audio_signal": "not_verified"}
-            rate = source.getframerate()
-            start_frame = max(0, int((first - captured_at + 1) * rate))
-            source.setpos(min(start_frame, source.getnframes()))
-            frame_count = max(0, int((end - first - 1.5) * rate))
-            samples = array.array("h", source.readframes(frame_count))
-        if len(samples) < rate * 2:
-            return {"audio_signal": "not_verified"}
+            format_code, channels, rate = struct.unpack_from("<HHI", header, 20)
+            block, bits = struct.unpack_from("<HH", header, 32)
+            if format_code != 1 or channels not in (1, 2) or rate != 44100 or bits != 16 or block != channels * 2:
+                return {"audio_signal": "not_verified"}
+            start = 44 + max(0, int(start_offset) - 44) // block * block
+            end = 44 + max(0, int(end_offset) - 44) // block * block
+            if end - start > 16 * 1024 * 1024 or end <= start:
+                return {"audio_signal": "not_verified"}
+            source.seek(start)
+            samples = array.array("h", source.read(end - start))
+        seconds = len(samples) / (rate * channels)
+        if seconds < minimum_seconds:
+            return {"audio_signal": "not_verified", "audio_sample_seconds": round(seconds, 2)}
         rms = math.sqrt(sum(value * value for value in samples) / len(samples)) / 32768
         return {"audio_signal": "observed" if rms > 0.001 else "not_observed",
-                "audio_rms": round(rms, 6), "audio_sample_seconds": round(len(samples) / rate, 2)}
-    except (OSError, ValueError, wave.Error):
+                "audio_rms": round(rms, 6), "audio_sample_seconds": round(seconds, 2)}
+    except (KeyError, OSError, ValueError, struct.error):
         return {"audio_signal": "not_verified"}
+
+
+def audio_evidence(path, markers, native):
+    first = native.get("first_image_epoch_ms", 0) / 1000
+    end = native.get("observation_end_epoch_ms", 0) / 1000
+    if first <= 0 or end - first < 4 or not markers:
+        return {"audio_signal": "not_verified"}
+    start_offset = min(markers, key=lambda mark: abs(mark[0] - first - 1))[1]
+    end_offset = min(markers, key=lambda mark: abs(mark[0] - end + 0.5))[1]
+    return wav_segment(path, start_offset, end_offset)
 
 
 def run(directory):
@@ -250,36 +288,19 @@ def run(directory):
     report = {"app": preparation, "test_account": USERNAME,
               "started_epoch_ms": int(time.time() * 1000), "playback_attempts": 0, "cases": []}
     try:
-        # Check emulator audio with a local synthetic tone before requesting any media.
-        tone_path = directory / "audio-path-probe.wav"
-        tone_recorder = subprocess.Popen(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "pulse",
-             "-i", "snaptvnow_test.monitor", "-ac", "1", "-ar", "16000", str(tone_path)],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            time.sleep(0.5)
-            tone_result = probe("audio_probe")
-        finally:
-            tone_recorder.terminate()
-            try:
-                tone_recorder.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                tone_recorder.kill()
-                tone_recorder.wait()
-        try:
-            with wave.open(str(tone_path), "rb") as tone_source:
-                tone_samples = array.array("h", tone_source.readframes(tone_source.getnframes()))
-            tone_rms = (math.sqrt(sum(value * value for value in tone_samples) / len(tone_samples)) / 32768
-                        if tone_samples else 0)
-        except (OSError, ValueError, wave.Error):
-            tone_rms = 0
-        finally:
-            tone_path.unlink(missing_ok=True)
+        # Observe actual emulator PCM, checking a local synthetic tone before media.
+        audio_path = Path(os.environ["QEMU_WAV_PATH"])
+        tone_start = wav_position()
+        tone_result = probe("audio_probe")
+        tone_result.pop("_audio_markers", None)
+        time.sleep(0.2)
+        tone = wav_segment(audio_path, tone_start, wav_position(), minimum_seconds=1)
         report["emulator_audio_path"] = {"tone_completed": tone_result.get("status") == "test_tone_completed",
-                                         "rms": round(tone_rms, 6), "verified": tone_rms > 0.001}
+                                         **tone, "verified": tone.get("audio_signal") == "observed"}
         if not report["emulator_audio_path"]["verified"]:
             raise CheckFailure("emulator_audio_path_not_verified")
         report["login"] = probe("login", password=password)
+        report["login"].pop("_audio_markers", None)
         if report["login"].get("status") != "login_observed":
             raise CheckFailure("native_login_not_observed")
         # Metadata only. Media is requested exclusively by the installed app after UI selection.
@@ -296,12 +317,6 @@ def run(directory):
             if "state" in target:
                 report["cases"].append(target)
                 continue
-            audio_path = directory / "native-audio.wav"
-            captured_at = time.time()
-            recorder = subprocess.Popen(
-                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "pulse",
-                 "-i", "snaptvnow_test.monitor", "-ac", "1", "-ar", "16000", str(audio_path)],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             native = {}
             try:
                 native = probe(target["kind"], title=target["title"],
@@ -310,15 +325,8 @@ def run(directory):
                 if str(error) == "native_command_timeout":
                     raise
                 native = {"status": "not_verified", "reason": str(error)}
-            finally:
-                recorder.terminate()
-                try:
-                    recorder.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    recorder.kill()
-                    recorder.wait()
-            sound = audio_evidence(audio_path, captured_at, native)
-            audio_path.unlink(missing_ok=True)
+            time.sleep(0.2)
+            sound = audio_evidence(audio_path, native.pop("_audio_markers", []), native)
             case = dict(target, native=native, audio=sound)
             case["state"] = ("native_playback_observed" if native.get("status") == "native_image_observed"
                              and native.get("audio_track_active") and sound["audio_signal"] == "observed"
@@ -332,6 +340,8 @@ def run(directory):
         report["reason"] = str(error)
     finally:
         report["finished_epoch_ms"] = int(time.time() * 1000)
+        if os.environ.get("QEMU_WAV_PATH"):
+            Path(os.environ["QEMU_WAV_PATH"]).unlink(missing_ok=True)
         (directory / "native-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
         for package in (PACKAGE, "com.snaptvnow.nativeprobe"):
             try:

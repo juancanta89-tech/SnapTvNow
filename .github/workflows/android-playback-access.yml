@@ -43,20 +43,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 verification/native-acceptance/acceptance.py prepare
-      - name: Prepare isolated audio observation
+      - name: Prepare direct emulator audio observation
         if: env.LIVE_REQUESTED == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq pulseaudio ffmpeg
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=snaptvnow_test
-          pactl set-default-sink snaptvnow_test
-          pactl set-default-source snaptvnow_test.monitor
-          pactl load-module module-native-protocol-tcp listen=127.0.0.1 port=4713 auth-ip-acl=127.0.0.1 auth-anonymous=1
-          pactl --server=tcp:127.0.0.1:4713 info > /dev/null
-          echo 'PULSE_SERVER=tcp:127.0.0.1:4713' >> "$GITHUB_ENV"
+          echo 'QEMU_AUDIO_DRV=wav' >> "$GITHUB_ENV"
+          echo 'QEMU_AUDIO_OUT_DRV=wav' >> "$GITHUB_ENV"
+          echo 'QEMU_AUDIO_IN_DRV=none' >> "$GITHUB_ENV"
+          echo "QEMU_WAV_PATH=$RUNNER_TEMP/snaptvnow-native-probe/emulator-output.wav" >> "$GITHUB_ENV"
+          echo 'QEMU_WAV_FREQUENCY=44100' >> "$GITHUB_ENV"
+          echo 'QEMU_WAV_FORMAT=s16' >> "$GITHUB_ENV"
+          echo 'QEMU_WAV_DAC_FIXED_CHANNELS=2' >> "$GITHUB_ENV"
       - name: Enable the isolated Android runner
         if: env.LIVE_REQUESTED == 'true'
         shell: bash
