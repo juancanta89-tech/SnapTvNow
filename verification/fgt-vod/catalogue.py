@@ -9,6 +9,7 @@ D=Path(os.environ["RUNNER_TEMP"])/"snaptvnow-native-probe"
 def probe(mode,password=None):
     if mode not in ("fgt_login","fgt_vod_catalogue","fgt_vod_refresh"):raise CheckFailure("catalogue_only_mode_required")
     args=["am","instrument","-w","-r","-e","mode",mode,"-e","screen","Mobile"]
+    if mode=="fgt_vod_refresh":args += ["-e","refresh_context","warm"]
     if password is not None:args+=["-e","password",password]
     args+=["com.snaptvnow.nativeprobe/.NativeProbe"]
     output=command(["adb","shell",shlex.join(args)],timeout=115)
@@ -104,13 +105,33 @@ def install(apk,stage):
         code=re.search(r"\bINSTALL_[A-Z0-9_]+\b",result.stdout+result.stderr)
         raise CheckFailure(stage+"_"+(code.group(0) if code else "adb_install_failed"))
 
+def process_identity():
+    try:
+        value=command(["adb","shell","pidof",PACKAGE],timeout=15).strip()
+        return value if re.fullmatch(r"[0-9]+",value) else None
+    except CheckFailure:return None
+
+def process_evidence():
+    evidence={}
+    try:
+        raw=command(["adb","shell","dumpsys","meminfo",PACKAGE],timeout=15)
+        for key,pattern in (("total_pss_kb",r"TOTAL PSS:\s+(\d+)"),("total_rss_kb",r"TOTAL RSS:\s+(\d+)")):
+            match=re.search(pattern,raw)
+            if match:evidence[key]=int(match.group(1))
+    except CheckFailure:evidence["memory_read"]="not_verified"
+    try:
+        raw=command(["adb","shell","dumpsys","activity","exit-info",PACKAGE],timeout=15)
+        evidence["memory_limiter_exit_marker"]="MemoryLimiter:AnonSwap" in raw
+    except CheckFailure:evidence["exit_read"]="not_verified"
+    return evidence
+
 def run():
     password=os.environ.get("DIEGUITO2026_PASSWORD","")
     if not password:raise CheckFailure("secure_login_not_bound")
     report={"app":json.loads((D/"preparation.json").read_text()),"scope":"dieguito2026; movie catalogue only",
             "started_epoch_ms":int(time.time()*1000),"playback_attempts":0,"native_runs":1}
     try:
-        report["device_scope"]="Android emulator with portrait Fold-like viewport; not the owner's Samsung device"
+        report["device_scope"]="Android 17 emulator, Fold-like portrait viewport; warm refresh, not the owner's Samsung device"
         report["sdk"]=command(["adb","shell","getprop","ro.build.version.sdk"]).strip()
         report["stage"]="configure_viewport"
         command(["adb","shell","wm","size","1280x1536"])
@@ -128,12 +149,16 @@ def run():
             report["stage"]="native_initial_catalogue"
             report["native_vod"]=probe("fgt_vod_catalogue")
             report["parser_initial"]=parser_evidence()
-            command(["adb","shell","am","force-stop",PACKAGE])
-            report["stored_initial"]=private_snapshot()
+            before=process_identity()
+            report["process_initial"]=process_evidence()
+            report["stored_initial"]={"state":"not_requested","reason":"preserve_warm_application_process"}
             command(["adb","logcat","-c"])
             report["stage"]="native_persisted_refresh"
             report["native_refresh"]=probe("fgt_vod_refresh")
             report["parser_refresh"]=parser_evidence()
+            after=process_identity()
+            report["same_app_process_during_refresh"]=bool(before and after and before==after)
+            report["process_refresh"]=process_evidence()
             command(["adb","shell","am","force-stop",PACKAGE])
             # Optional aggregate snapshot only after native checks finish.
             # Failure to restart adbd must never block the app observation.
@@ -159,4 +184,5 @@ def run():
     if report.get("state")!="evidence_recorded":raise SystemExit(1)
 
 if __name__=="__main__":run()
+
 

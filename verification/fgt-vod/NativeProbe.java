@@ -607,7 +607,18 @@ public final class NativeProbe extends Instrumentation {
 
     // Metadata navigation only: never select a movie card or enter a player.
     private void fgtVodCatalogue(JSONObject report, boolean refresh) throws Exception {
-        launch();
+        if(refresh && arguments.getString("refresh_context", "cold").equals("warm")) {
+            report.put("warm_refresh_requested",true);
+            if(!fgtHome()) {
+                if(!fgtId("iv_back_button_1"))automation.performGlobalAction(1);
+                SystemClock.sleep(700);
+            }
+            if(!fgtHome()) {
+                automation.performGlobalAction(1);
+                SystemClock.sleep(700);
+            }
+            if(!fgtHome())throw new ProbeFailure("warm_dashboard_not_observed");
+        } else launch();
         long started=SystemClock.elapsedRealtime(), deadline=started+90000;
         boolean requested=false, opened=false, selected=false;
         long selectedAt=0;
@@ -729,4 +740,5 @@ public final class NativeProbe extends Instrumentation {
         ProbeFailure(String code) { this.code = code; }
     }
 }
+
 

@@ -1,4 +1,4 @@
-name: Inspect original FGT mobile movie catalogue
+name: Inspect original FGT Android 17 warm movie refresh
 on:
   push:
     branches: [automation/repair-2026-11-12-03]
@@ -43,7 +43,7 @@ jobs:
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
         with:
-          api-level: 36
+          api-level: 37
           arch: x86_64
           target: google_apis
           emulator-boot-timeout: 240
@@ -60,4 +60,5 @@ jobs:
             ${{ runner.temp }}/snaptvnow-native-probe/vod-report.json
           if-no-files-found: ignore
           retention-days: 7
+
 
