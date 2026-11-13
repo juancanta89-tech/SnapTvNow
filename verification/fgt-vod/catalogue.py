@@ -54,7 +54,7 @@ def parser_evidence():
 def private_bytes(relative,maximum):
     # Read only this isolated emulator's authorized test profile. Never print
     # or upload raw app preferences/database bytes or exception messages.
-    allowed={"shared_prefs/loginPrefs.xml","shared_prefs/loginPrefsserverurl.xml",
+    allowed={"shared_prefs/loginPrefs.xml","shared_prefs/loginPrefsserverurl.xml","shared_prefs/auto_start.xml",
              "shared_prefs/loginprefsmultiuser.xml","databases/iptv_live_streams_tv.db"}
     if relative not in allowed:raise CheckFailure("private_read_scope_rejected")
     try:
@@ -67,7 +67,7 @@ def private_bytes(relative,maximum):
 def private_snapshot():
     try:
         prefs={}
-        for name in ("loginPrefs","loginPrefsserverurl","loginprefsmultiuser"):
+        for name in ("loginPrefs","loginPrefsserverurl","loginprefsmultiuser","auto_start"):
             root=ET.fromstring(private_bytes("shared_prefs/"+name+".xml",256*1024))
             prefs[name]={x.get("name"):(x.get("value") if x.get("value") is not None else x.text or "") for x in root}
         login=prefs["loginPrefs"];profile=prefs["loginprefsmultiuser"]
@@ -75,7 +75,7 @@ def private_snapshot():
         if uid<0 or login.get("username")!=USERNAME:
             return {"state":"not_verified","reason":"authorized_local_profile_not_matched"}
         result={"state":"verified","authorized_profile_matched":True,
-                "screen_mode":profile.get("screenType") if profile.get("screenType") in ("TV","Mobile") else "other"}
+                "screen_mode":prefs["auto_start"].get("pref.screen_type") if prefs["auto_start"].get("pref.screen_type") in ("TV","Mobile") else "other"}
         for label,value in (("selected",prefs["loginPrefsserverurl"].get("serverUrlMAG","")),
                             ("login",login.get("serverUrl",""))):
             parsed=urllib.parse.urlsplit(value if "://" in value else "http://"+value)
@@ -95,6 +95,15 @@ def private_snapshot():
         finally:db.close()
     except Exception:return {"state":"not_verified","reason":"bounded_local_snapshot_not_available"}
 
+def install(apk,stage):
+    try:
+        result=subprocess.run(["adb","install","-g",str(apk)],stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE,text=True,timeout=60)
+    except (OSError,subprocess.TimeoutExpired):raise CheckFailure(stage+"_command_unavailable") from None
+    if result.returncode:
+        code=re.search(r"\bINSTALL_[A-Z0-9_]+\b",result.stdout+result.stderr)
+        raise CheckFailure(stage+"_"+(code.group(0) if code else "adb_install_failed"))
+
 def run():
     password=os.environ.get("DIEGUITO2026_PASSWORD","")
     if not password:raise CheckFailure("secure_login_not_bound")
@@ -103,28 +112,37 @@ def run():
     try:
         report["device_scope"]="Android emulator with portrait Fold-like viewport; not the owner's Samsung device"
         report["sdk"]=command(["adb","shell","getprop","ro.build.version.sdk"]).strip()
+        report["stage"]="configure_viewport"
         command(["adb","shell","wm","size","1280x1536"])
         command(["adb","shell","wm","density","320"])
         command(["adb","shell","settings","put","system","accelerometer_rotation","0"])
         command(["adb","shell","settings","put","system","user_rotation","0"])
-        # adbd root is confined to this disposable authorized emulator.
-        try:
-            command(["adb","root"],timeout=15)
-            command(["adb","wait-for-device"],timeout=15)
-        except CheckFailure:report["local_snapshot_access"]="not_verified"
-        command(["adb","install","-g",str(D/"official.apk")])
-        command(["adb","install",str(D/"native-probe.apk")])
+        report["stage"]="install_official_apk"
+        install(D/"official.apk","official")
+        report["stage"]="install_external_controller"
+        install(D/"native-probe.apk","controller")
         command(["adb","logcat","-c"])
+        report["stage"]="native_login"
         report["login"]=probe("fgt_login",password)
         if report["login"].get("status")=="login_observed":
+            report["stage"]="native_initial_catalogue"
             report["native_vod"]=probe("fgt_vod_catalogue")
             report["parser_initial"]=parser_evidence()
             command(["adb","shell","am","force-stop",PACKAGE])
             report["stored_initial"]=private_snapshot()
             command(["adb","logcat","-c"])
+            report["stage"]="native_persisted_refresh"
             report["native_refresh"]=probe("fgt_vod_refresh")
             report["parser_refresh"]=parser_evidence()
             command(["adb","shell","am","force-stop",PACKAGE])
+            # Optional aggregate snapshot only after native checks finish.
+            # Failure to restart adbd must never block the app observation.
+            report["stage"]="optional_local_snapshot"
+            try:
+                command(["adb","root"],timeout=15)
+                command(["adb","wait-for-device"],timeout=15)
+                command(["adb","shell","true"],timeout=15)
+            except CheckFailure:report["local_snapshot_access"]="not_verified"
             report["stored_refresh"]=private_snapshot()
         else:report["native_vod"]={"status":"not_verified","reason":"login_not_observed"}
         report["direct_api_metadata_requests"]=0
