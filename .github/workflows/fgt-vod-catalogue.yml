@@ -1,4 +1,4 @@
-name: Inspect original FGT movie catalogue
+name: Inspect original FGT mobile movie catalogue
 on:
   push:
     branches: [automation/repair-2026-11-12-03]
@@ -43,9 +43,9 @@ jobs:
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
         with:
-          api-level: ${{ steps.official.outputs.emulator_api }}
+          api-level: 36
           arch: x86_64
-          target: ${{ steps.official.outputs.emulator_target }}
+          target: google_apis
           emulator-boot-timeout: 240
           disable-animations: true
           emulator-options: -no-window -no-boot-anim -gpu swiftshader_indirect -camera-back none
@@ -60,3 +60,4 @@ jobs:
             ${{ runner.temp }}/snaptvnow-native-probe/vod-report.json
           if-no-files-found: ignore
           retention-days: 7
+

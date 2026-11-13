@@ -49,7 +49,9 @@ public final class NativeProbe extends Instrumentation {
                 fgtLogin(arguments.getString("password", ""), report);
                 report.put("status", "login_observed");
             } else if (mode.equals("fgt_vod_catalogue")) {
-                fgtVodCatalogue(report);
+                fgtVodCatalogue(report, false);
+            } else if (mode.equals("fgt_vod_refresh")) {
+                fgtVodCatalogue(report, true);
             } else throw new ProbeFailure("catalogue_only_mode_required");
         } catch (ProbeFailure failure) {
             put(report, "status", "not_verified");
@@ -486,7 +488,10 @@ public final class NativeProbe extends Instrumentation {
                 if (fgtClick("ACEPTAR","Aceptar","ACCEPT","Accept","I AGREE","I Agree")
                         || fgtClick("LOGIN WITH XTREAM CODES API","Login with Xtream Codes API")
                         || fgtClick("ADD USER","Add User","AÑADIR USUARIO","Añadir usuario","Agregar usuario")) setupActions++;
-                else if (!tvSelected && fgtClick("TV")) {tvSelected=true;setupActions++;}
+                else if (!tvSelected && fgtClick(arguments.getString("screen", "TV"))) {
+                    tvSelected=true;setupActions++;
+                    report.put("screen_choice",arguments.getString("screen", "TV"));
+                }
                 else if (fgtClick("SAVE","Save","GUARDAR","Guardar")) setupActions++;
             } else if (submitted && !profileOpened && fgtClick("SNAPTVNOW prueba")) {
                 profileOpened = true;
@@ -601,7 +606,7 @@ public final class NativeProbe extends Instrumentation {
 
 
     // Metadata navigation only: never select a movie card or enter a player.
-    private void fgtVodCatalogue(JSONObject report) throws Exception {
+    private void fgtVodCatalogue(JSONObject report, boolean refresh) throws Exception {
         launch();
         long started=SystemClock.elapsedRealtime(), deadline=started+90000;
         boolean requested=false, opened=false, selected=false;
@@ -619,9 +624,16 @@ public final class NativeProbe extends Instrumentation {
                 }
             }
             if(requested && retry)throw new ProbeFailure("vod_initial_download_failed");
-            if(!opened && ready && fgtId("on_demand")) {
+            if(refresh && !requested && !opened && ready) {
+                if(!fgtId("ll_last_updated_movies"))throw new ProbeFailure("vod_refresh_control_not_found");
+                requested=true;report.put("movie_refresh_actions",1);
+                SystemClock.sleep(500);continue;
+            }
+            if(!opened && ready && (!refresh || requested) && fgtId("on_demand")) {
                 opened=true;report.put("catalogue_download_ready",true);
-            } else if(!requested && !opened && (downloadable||retry) && fgtId("on_demand")) {
+            } else if(refresh && !requested && !opened && (downloadable||retry)) {
+                throw new ProbeFailure("vod_cached_profile_missing");
+            } else if(!refresh && !requested && !opened && (downloadable||retry) && fgtId("on_demand")) {
                 requested=true;report.put("initial_download_actions",1);
             }
             if(opened && !selected) {
@@ -717,3 +729,4 @@ public final class NativeProbe extends Instrumentation {
         ProbeFailure(String code) { this.code = code; }
     }
 }
+
