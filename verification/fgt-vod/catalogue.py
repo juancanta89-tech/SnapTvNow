@@ -131,7 +131,7 @@ def run():
     report={"app":json.loads((D/"preparation.json").read_text()),"scope":"dieguito2026; movie catalogue only",
             "started_epoch_ms":int(time.time()*1000),"playback_attempts":0,"native_runs":1}
     try:
-        report["device_scope"]="Android 17 emulator, Fold-like portrait viewport; warm refresh, not the owner's Samsung device"
+        report["device_scope"]="Android emulator, Fold-like portrait viewport; warm refresh, not the owner's Samsung device"
         report["sdk"]=command(["adb","shell","getprop","ro.build.version.sdk"]).strip()
         report["stage"]="configure_viewport"
         command(["adb","shell","wm","size","1280x1536"])
