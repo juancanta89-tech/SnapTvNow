@@ -47,6 +47,7 @@ def prepare():
             "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0",
             "CFBundleSupportedPlatforms": ["iPhoneSimulator"], "MinimumOSVersion": "17.0",
             "UIDeviceFamily": [1], "LSRequiresIPhoneOS": True,
+            "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
             "UILaunchScreen": {}, "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"]
         }, handle)
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-swift-version", "5",
@@ -56,13 +57,17 @@ def prepare():
     command("xcrun", "simctl", "install", udid, app, timeout=60)
 
 
-def run():
+def run(alternatives=None, port=None):
     udid = (WORK / "device").read_text()
     from probe import channels
-    selection = channels()
+    selection = {} if alternatives is not None else channels()
     env = dict(os.environ)
     env["SIMCTL_CHILD_TEST_PASSWORD"] = env.pop("DIEGUITO2026_PASSWORD")
-    env["SIMCTL_CHILD_PRIMARY_ID"] = selection["gol peru"]
+    if alternatives is not None:
+        env["SIMCTL_CHILD_VARIANT_IDS"] = ",".join(alternatives)
+        if port:
+            env["SIMCTL_CHILD_SAMPLE_PORT"] = str(port)
+    env["SIMCTL_CHILD_PRIMARY_ID"] = selection.get("gol peru", "")
     env["SIMCTL_CHILD_CONTROL_ID"] = selection.get("canal n", "")
     container = Path(command("xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"))
     output = container / "Documents" / "verification.jsonl"
@@ -70,7 +75,7 @@ def run():
     command("xcrun", "simctl", "launch", udid, BUNDLE, env=env, timeout=30)
     observed = 0
     try:
-        deadline = time.monotonic() + 145
+        deadline = time.monotonic() + (30 * (len(alternatives) + 2) + 30 if alternatives is not None else 145)
         while time.monotonic() < deadline:
             if output.exists():
                 rows = output.read_text().splitlines()

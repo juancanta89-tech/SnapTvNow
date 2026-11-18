@@ -47,6 +47,23 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
         append(["stage": "simulator", "os": UIDevice.current.systemVersion])
+        if let alternatives = env["VARIANT_IDS"] {
+            for identifier in alternatives.split(separator: ",").map(String.init) {
+                guard identifier.count <= 14, identifier.utf8.allSatisfy({ (48...57).contains($0) }),
+                      let url = URL(string: "https://api.snaptvnow.com/live/dieguito2026/" + encoded + "/" + identifier + ".m3u8") else { continue }
+                await play(url, label: "variant " + identifier, format: "m3u8")
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            if let port = env["SAMPLE_PORT"], let number = UInt16(port), number > 0 {
+                for variant in ["original", "aac"] {
+                    if let local = URL(string: "http://localhost:" + String(number) + "/" + variant + "/index.m3u8") {
+                        await play(local, label: "same source " + variant, format: "local_hls")
+                    }
+                }
+            }
+            append(["stage": "finished"])
+            return
+        }
         for (label, key) in [("gol peru", "PRIMARY_ID"), ("canal n", "CONTROL_ID")] {
             guard let identifier = env[key], !identifier.isEmpty, identifier.count <= 14,
                   identifier.utf8.allSatisfy({ (48...57).contains($0) }) else { continue }
