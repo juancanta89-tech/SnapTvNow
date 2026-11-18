@@ -1,0 +1,32 @@
+name: Check software playback on iPhone
+on:
+  push:
+    branches: [verify/live-formats-20261118]
+    paths:
+      - verification/live-formats/SoftwarePlayback.m
+      - verification/live-formats/software_simulator.py
+      - .github/workflows/iphone-software-playback.yml
+permissions:
+  contents: read
+jobs:
+  software:
+    runs-on: macos-26
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify the official VideoLAN framework
+        run: |
+          mkdir -p "$RUNNER_TEMP/vlckit"
+          cd "$RUNNER_TEMP/vlckit"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 1 --max-time 200 \
+            -o kit.tar.xz https://download.videolan.org/pub/cocoapods/prod/MobileVLCKit-3.7.5-a213fd11-6de05adc.tar.xz
+          echo 'a76f7a6cfcde4209b56f943e6e18400659d8a7a93ff482f8b1d059468d11e6be  kit.tar.xz' | shasum -a 256 -c -
+          tar -xf kit.tar.xz
+      - name: Build and install the software player
+        run: python3 verification/live-formats/software_simulator.py prepare
+      - name: Measure pictures and audio buffers on the original live signal
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/live-formats/software_simulator.py run
