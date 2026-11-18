@@ -25,7 +25,19 @@ jobs:
           fi
           sudo apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=12 update -qq
           sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg
-      - name: Check the selected live signal and one control
+      - name: Decode the three registered Gol Peru variants
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
-        run: python3 verification/live-formats/probe.py
+        working-directory: verification/live-formats
+        run: |
+          python3 - <<'PYTHON'
+          from alternatives import variants
+          from probe import decode, emit, media_url, ProbeError, sample
+          for identifier, label in variants().items():
+              try:
+                  buf, headers = sample(media_url(identifier, "m3u8"))
+                  emit(stage="variant_decode", public_id=identifier, label=label, **headers, **decode(buf))
+              except Exception as err:
+                  emit(stage="variant_decode", public_id=identifier,
+                       error=str(err) if isinstance(err, ProbeError) else type(err).__name__)
+          PYTHON
