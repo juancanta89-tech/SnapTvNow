@@ -18,7 +18,7 @@ def command(*args, **kwargs):
     return subprocess.check_output([str(x) for x in args], text=True, **kwargs).strip()
 
 
-def prepare_bundle():
+def prepare_bundle(wait_for_boot=True):
     WORK.mkdir(exist_ok=True)
     sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     sdk_version = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-version")
@@ -31,13 +31,16 @@ def prepare_bundle():
             continue
         for model in models:
             if model.get("isAvailable") and model["name"].startswith("iPhone"):
-                options.append((int(match[1]), int(match[2] or 0), model["name"], model["udid"]))
+                options.append((int(match[1]), int(match[2] or 0), model["name"], model["udid"], model.get("state")))
     if not options:
         raise RuntimeError("no_iPhone_simulator")
-    _, _, name, udid = max(options)
+    _, _, name, udid, state = max(options)
     print("Using", name, "with iOS Simulator SDK", sdk_version, flush=True)
     (WORK / "device").write_text(udid)
-    command("xcrun", "simctl", "bootstatus", udid, "-b", timeout=270)
+    if wait_for_boot:
+        command("xcrun", "simctl", "bootstatus", udid, "-b", timeout=300)
+    elif state == "Shutdown":
+        command("xcrun", "simctl", "boot", udid, timeout=90)
     app = WORK / "LiveFormats.app"
     app.mkdir(exist_ok=True)
     with (app / "Info.plist").open("wb") as handle:
@@ -54,12 +57,13 @@ def prepare_bundle():
 
 
 def prepare():
-    sdk, app, udid = prepare_bundle()
+    sdk, app, udid = prepare_bundle(wait_for_boot=False)
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-swift-version", "5",
             "-sdk", sdk, "-target", platform.machine()+"-apple-ios17.0-simulator",
             "-parse-as-library", HERE/"NativePlayback.swift", "-o", app/"LiveFormats", timeout=300)
     command("codesign", "--force", "--sign", "-", app)
-    command("xcrun", "simctl", "install", udid, app, timeout=60)
+    command("xcrun", "simctl", "bootstatus", udid, "-b", timeout=300)
+    command("xcrun", "simctl", "install", udid, app, timeout=180)
 
 
 def run(alternatives=None, port=None):
@@ -77,7 +81,7 @@ def run(alternatives=None, port=None):
     container = Path(command("xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"))
     output = container / "Documents" / "verification.jsonl"
     output.unlink(missing_ok=True)
-    command("xcrun", "simctl", "launch", udid, BUNDLE, env=env, timeout=30)
+    command("xcrun", "simctl", "launch", udid, BUNDLE, env=env, timeout=75)
     observed = 0
     try:
         deadline = time.monotonic() + (30 * (len(alternatives) + 3) + 30 if alternatives is not None else 145)

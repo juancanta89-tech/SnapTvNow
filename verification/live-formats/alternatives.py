@@ -110,6 +110,8 @@ def main():
                          error=str(ex) if isinstance(ex, ProbeError) else type(ex).__name__)
                     if attempt == 1:
                         time.sleep(2)
+            if server:
+                break
         try:
             run(alternatives=selected, port=server.server_port if server else None)
         finally:

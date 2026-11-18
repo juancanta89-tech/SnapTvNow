@@ -48,12 +48,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         try? AVAudioSession.sharedInstance().setActive(true)
         append(["stage": "simulator", "os": UIDevice.current.systemVersion])
         if let alternatives = env["VARIANT_IDS"] {
-            for identifier in alternatives.split(separator: ",").map(String.init) {
-                guard identifier.count <= 14, identifier.utf8.allSatisfy({ (48...57).contains($0) }),
-                      let url = URL(string: "https://api.snaptvnow.com/live/dieguito2026/" + encoded + "/" + identifier + ".m3u8") else { continue }
-                await play(url, label: "variant " + identifier, format: "m3u8")
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
             if let port = env["SAMPLE_PORT"], let number = UInt16(port), number > 0 {
                 for variant in ["original", "aac"] {
                     if let local = URL(string: "http://localhost:" + String(number) + "/" + variant + "/index.m3u8") {
@@ -63,6 +57,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                 if let redirected = URL(string: "http://localhost:" + String(number) + "/negotiated.ts") {
                     await play(redirected, label: "same source AAC via redirect", format: "local_ts_redirect")
                 }
+            }
+            for identifier in alternatives.split(separator: ",").map(String.init) {
+                guard identifier.count <= 14, identifier.utf8.allSatisfy({ (48...57).contains($0) }),
+                      let url = URL(string: "https://api.snaptvnow.com/live/dieguito2026/" + encoded + "/" + identifier + ".m3u8") else { continue }
+                await play(url, label: "variant " + identifier, format: "m3u8")
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
             append(["stage": "finished"])
             return
