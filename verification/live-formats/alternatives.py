@@ -37,7 +37,8 @@ def variants():
 
 
 class QuietServer(http.server.SimpleHTTPRequestHandler):
-    extensions_map = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
+    extensions_map = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t",
+                      ".mp4": "video/mp4", ".m4s": "video/iso.segment"}
 
     def do_GET(self):
         if self.path == "/negotiated.ts":
@@ -79,6 +80,26 @@ def local_comparison(data, root):
     emit(stage="matched_video", identical_compressed_video=equal)
     if not equal:
         raise ProbeError("comparison_video_mismatch")
+    aac = ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
+    for variant in ("fragmented", "progressive"):
+        target = root / "media" / variant
+        target.mkdir(exist_ok=True)
+        if variant == "fragmented":
+            video = ["-c:v", "copy"]
+            packaging = ["-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4"]
+            suffix = "m4s"
+        else:
+            video = ["-vf", "bwdif=mode=send_frame,scale=1280:720,setsar=1,format=yuv420p",
+                     "-r", "30000/1001", "-c:v", "libx264", "-profile:v", "main", "-level:v", "3.1",
+                     "-preset", "veryfast", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
+                     "-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "6000k"]
+            packaging = ["-hls_flags", "independent_segments"]
+            suffix = "ts"
+        process = subprocess.run([*ff, "-i", str(source), "-map", "0:v:0", "-map", "0:a:0", *video, *aac,
+                                  "-t", "12", "-hls_time", "2", "-hls_playlist_type", "vod", *packaging,
+                                  "-hls_segment_filename", str(target / ("part%03d." + suffix)),
+                                  str(target / "index.m3u8")], capture_output=True, timeout=75)
+        emit(stage="comparison_packaging", variant=variant, prepared=process.returncode == 0)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
         functools.partial(QuietServer, directory=str(root / "media")))
     threading.Thread(target=server.serve_forever, daemon=True).start()

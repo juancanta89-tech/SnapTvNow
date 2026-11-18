@@ -49,14 +49,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         append(["stage": "simulator", "os": UIDevice.current.systemVersion])
         if let alternatives = env["VARIANT_IDS"] {
             if let port = env["SAMPLE_PORT"], let number = UInt16(port), number > 0 {
-                for variant in ["original", "aac"] {
+                for variant in ["progressive", "fragmented", "aac", "original"] {
                     if let local = URL(string: "http://localhost:" + String(number) + "/" + variant + "/index.m3u8") {
                         await play(local, label: "same source " + variant, format: "local_hls")
                     }
                 }
-                if let redirected = URL(string: "http://localhost:" + String(number) + "/negotiated.ts") {
-                    await play(redirected, label: "same source AAC via redirect", format: "local_ts_redirect")
-                }
+                append(["stage": "finished"])
+                return
             }
             for identifier in alternatives.split(separator: ",").map(String.init) {
                 guard identifier.count <= 14, identifier.utf8.allSatisfy({ (48...57).contains($0) }),

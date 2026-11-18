@@ -197,11 +197,13 @@ def decode(sample_bytes):
         path = str(Path(tmp) / "sample.bin")
         Path(path).write_bytes(sample_bytes)
         inp = ["-v", "error", "-protocol_whitelist", "file,pipe", "-i", path]
+        fields = ("codec_type", "codec_name", "profile", "level", "width", "height", "pix_fmt",
+                  "field_order", "r_frame_rate", "channels", "sample_rate")
         streams = subprocess.run(["ffprobe", *inp, "-show_entries",
-                                  "stream=codec_type,codec_name,width,height", "-of", "json"],
+                                  "stream=" + ",".join(fields), "-of", "json"],
                                  capture_output=True, timeout=22)
         info = json.loads(streams.stdout or b"{}").get("streams", [])
-        tracks = [{k: v for k, v in t.items() if k in ("codec_type","codec_name","width","height")}
+        tracks = [{k: v for k, v in t.items() if k in fields}
                   for t in info if t.get("codec_type") in ("audio", "video")][:6]
         decoded = {}
         for index, media in (("v", "video"), ("a", "audio")):
