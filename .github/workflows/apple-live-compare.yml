@@ -1,0 +1,24 @@
+name: Compare live video on an iPhone simulator
+on:
+  push:
+    branches: [verify/live-formats-20261118]
+    paths:
+      - verification/live-formats/NativePlayback.swift
+      - verification/live-formats/simulator.py
+      - .github/workflows/apple-live-compare.yml
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build and install on an iPhone simulator
+        run: python3 verification/live-formats/simulator.py prepare
+      - name: Observe decoded frames on the selected channels
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/live-formats/simulator.py run

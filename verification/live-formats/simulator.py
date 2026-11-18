@@ -1,0 +1,101 @@
+"""Build the diagnostic iPhone app and run it on a standard Apple simulator."""
+import json
+import os
+from pathlib import Path
+import platform
+import plistlib
+import re
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+WORK = Path(os.environ["RUNNER_TEMP"]) / "live-format-simulator"
+BUNDLE = "com.snaptvnow.diagnostics.liveformats"
+
+
+def command(*args, **kwargs):
+    return subprocess.check_output([str(x) for x in args], text=True, **kwargs).strip()
+
+
+def prepare():
+    WORK.mkdir(exist_ok=True)
+    sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
+    sdk_version = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-version")
+    major = int(sdk_version.split(".")[0])
+    devices = json.loads(command("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
+    options = []
+    for runtime, models in devices.items():
+        match = re.search(r"SimRuntime\.iOS-(\d+)(?:-(\d+))?", runtime)
+        if not match or int(match[1]) > major:
+            continue
+        for model in models:
+            if model.get("isAvailable") and model["name"].startswith("iPhone"):
+                options.append((int(match[1]), int(match[2] or 0), model["name"], model["udid"]))
+    if not options:
+        raise RuntimeError("no_iPhone_simulator")
+    _, _, name, udid = max(options)
+    print("Using", name, "with iOS Simulator SDK", sdk_version, flush=True)
+    (WORK / "device").write_text(udid)
+    command("xcrun", "simctl", "bootstatus", udid, "-b", timeout=270)
+    app = WORK / "LiveFormats.app"
+    app.mkdir(exist_ok=True)
+    with (app / "Info.plist").open("wb") as handle:
+        plistlib.dump({
+            "CFBundleIdentifier": BUNDLE, "CFBundleExecutable": "LiveFormats",
+            "CFBundleName": "LiveFormats", "CFBundlePackageType": "APPL",
+            "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0",
+            "CFBundleSupportedPlatforms": ["iPhoneSimulator"], "MinimumOSVersion": "17.0",
+            "UIDeviceFamily": [1], "LSRequiresIPhoneOS": True,
+            "UILaunchScreen": {}, "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"]
+        }, handle)
+    command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-swift-version", "5",
+            "-sdk", sdk, "-target", platform.machine()+"-apple-ios17.0-simulator",
+            "-parse-as-library", HERE/"NativePlayback.swift", "-o", app/"LiveFormats", timeout=100)
+    command("codesign", "--force", "--sign", "-", app)
+    command("xcrun", "simctl", "install", udid, app, timeout=60)
+
+
+def run():
+    udid = (WORK / "device").read_text()
+    from probe import channels
+    selection = channels()
+    env = dict(os.environ)
+    env["SIMCTL_CHILD_TEST_PASSWORD"] = env.pop("DIEGUITO2026_PASSWORD")
+    env["SIMCTL_CHILD_PRIMARY_ID"] = selection["gol peru"]
+    env["SIMCTL_CHILD_CONTROL_ID"] = selection.get("canal n", "")
+    container = Path(command("xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"))
+    output = container / "Documents" / "verification.jsonl"
+    output.unlink(missing_ok=True)
+    command("xcrun", "simctl", "launch", udid, BUNDLE, env=env, timeout=30)
+    observed = 0
+    try:
+        deadline = time.monotonic() + 145
+        while time.monotonic() < deadline:
+            if output.exists():
+                rows = output.read_text().splitlines()
+                for line in rows[observed:]:
+                    try:
+                        result = json.loads(line)
+                    except ValueError:
+                        break
+                    print(json.dumps(result), flush=True)
+                    observed += 1
+                    if result["stage"] == "finished":
+                        return
+            time.sleep(1)
+        raise RuntimeError("missing_simulator_completion")
+    finally:
+        subprocess.run(["xcrun", "simctl", "terminate", udid, BUNDLE], capture_output=True)
+
+
+if __name__ == "__main__":
+    if sys.argv[1] == "prepare":
+        prepare()
+    else:
+        try:
+            run()
+        except Exception as error:
+            # Raw network and simulator diagnostic objects can contain URLs.
+            print("Simulator check stopped:", type(error).__name__, flush=True)
+            raise SystemExit(1)
