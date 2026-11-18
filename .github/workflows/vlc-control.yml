@@ -1,0 +1,30 @@
+name: Measure the software decoder on the original signal
+on:
+  push:
+    branches: [verify/live-formats-20261118]
+    paths:
+      - verification/live-formats/software_control.py
+      - .github/workflows/vlc-control.yml
+permissions:
+  contents: read
+jobs:
+  decoder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare the reference VLC libraries
+        run: |
+          if test -f /etc/apt/apt-mirrors.txt; then
+            printf '%s\tpriority:1\n%s\tpriority:2\n' \
+              'https://ftp.osuosl.org/pub/ubuntu/' 'https://mirrors.kernel.org/ubuntu/' \
+              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=12 update -qq
+          sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg python3-vlc vlc-plugin-base vlc-plugin-video-output
+      - name: Measure audio and pictures without publishing the sample
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: /usr/bin/python3 verification/live-formats/software_control.py
