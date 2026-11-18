@@ -39,6 +39,21 @@ def variants():
 class QuietServer(http.server.SimpleHTTPRequestHandler):
     extensions_map = {".m3u8": "application/vnd.apple.mpegurl", ".ts": "video/mp2t"}
 
+    def do_GET(self):
+        if self.path == "/negotiated.ts":
+            agent = self.headers.get("User-Agent", "")
+            requested = self.headers.get("Range", "")
+            shape = requested if requested in ("bytes=0-1", "bytes=0-0", "bytes=0-", "") else "other"
+            emit(stage="apple_request_shape", core_media="AppleCoreMedia/" in agent,
+                 mobile=bool(re.search(r"iPhone|iPad|iPod|iOS", agent, re.I)), byte_range=shape)
+            self.send_response(307)
+            self.send_header("Location", "/aac/index.m3u8")
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+        super().do_GET()
+
     def log_message(self, format, *args):
         pass
 
@@ -82,9 +97,11 @@ def main():
                     result = decode(data)
                     emit(stage="variant_decode", public_id=identifier, label=label,
                          attempt=attempt, **response, **result)
-                    if identifier == "878" and not response["fallback"] and result["video_frames"] and result["audio_frames"]:
+                    if (server is None and not response["fallback"] and result["video_frames"] and result["audio_frames"]
+                            and any(t.get("codec_name") == "mp2" for t in result["tracks"])):
                         try:
                             server = local_comparison(data, root)
+                            emit(stage="matched_source", public_id=identifier)
                         except Exception as ex:
                             emit(stage="matched_video", error=type(ex).__name__)
                     break

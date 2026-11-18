@@ -60,6 +60,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                         await play(local, label: "same source " + variant, format: "local_hls")
                     }
                 }
+                if let redirected = URL(string: "http://localhost:" + String(number) + "/negotiated.ts") {
+                    await play(redirected, label: "same source AAC via redirect", format: "local_ts_redirect")
+                }
             }
             append(["stage": "finished"])
             return

@@ -75,7 +75,7 @@ def run(alternatives=None, port=None):
     command("xcrun", "simctl", "launch", udid, BUNDLE, env=env, timeout=30)
     observed = 0
     try:
-        deadline = time.monotonic() + (30 * (len(alternatives) + 2) + 30 if alternatives is not None else 145)
+        deadline = time.monotonic() + (30 * (len(alternatives) + 3) + 30 if alternatives is not None else 145)
         while time.monotonic() < deadline:
             if output.exists():
                 rows = output.read_text().splitlines()
