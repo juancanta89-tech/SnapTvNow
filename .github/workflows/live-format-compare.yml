@@ -1,0 +1,23 @@
+name: Compare live delivery formats
+on:
+  push:
+    branches: [verify/live-formats-20261118]
+    paths:
+      - verification/live-formats/probe.py
+      - .github/workflows/live-format-compare.yml
+permissions:
+  contents: read
+jobs:
+  decode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare the local media decoder
+        run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Check the selected live signal and one control
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/live-formats/probe.py
