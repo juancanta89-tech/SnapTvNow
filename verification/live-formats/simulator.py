@@ -18,7 +18,7 @@ def command(*args, **kwargs):
     return subprocess.check_output([str(x) for x in args], text=True, **kwargs).strip()
 
 
-def prepare():
+def prepare_bundle():
     WORK.mkdir(exist_ok=True)
     sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     sdk_version = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-version")
@@ -50,9 +50,14 @@ def prepare():
             "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
             "UILaunchScreen": {}, "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"]
         }, handle)
+    return sdk, app, udid
+
+
+def prepare():
+    sdk, app, udid = prepare_bundle()
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-swift-version", "5",
             "-sdk", sdk, "-target", platform.machine()+"-apple-ios17.0-simulator",
-            "-parse-as-library", HERE/"NativePlayback.swift", "-o", app/"LiveFormats", timeout=100)
+            "-parse-as-library", HERE/"NativePlayback.swift", "-o", app/"LiveFormats", timeout=300)
     command("codesign", "--force", "--sign", "-", app)
     command("xcrun", "simctl", "install", udid, app, timeout=60)
 

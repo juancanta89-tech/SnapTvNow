@@ -7,12 +7,11 @@ import shutil
 import subprocess
 import sys
 
-from simulator import HERE, WORK, command, prepare, run
+from simulator import HERE, command, prepare_bundle, run
 
 
 def install():
-    prepare()
-    app = WORK / "LiveFormats.app"
+    sdk, app, udid = prepare_bundle()
     xc = next(Path(os.environ["RUNNER_TEMP"]).joinpath("vlckit").rglob("MobileVLCKit.xcframework"))
     with (xc / "Info.plist").open("rb") as fp:
         specs = plistlib.load(fp)["AvailableLibraries"]
@@ -20,7 +19,6 @@ def install():
     selected = next(row for row in specs if row.get("SupportedPlatformVariant") == "simulator"
                     and row.get("SupportedPlatform") == "ios" and arch in row["SupportedArchitectures"])
     provider = xc / selected["LibraryIdentifier"]
-    sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     frameworks = ("UIKit Foundation QuartzCore CoreText AVFoundation Security CFNetwork AudioToolbox "
                   "OpenGLES CoreGraphics VideoToolbox CoreMedia CoreVideo CoreAudio Accelerate Metal").split()
     args = ["xcrun", "--sdk", "iphonesimulator", "clang", "-fobjc-arc", "-ObjC", "-isysroot", sdk,
@@ -37,7 +35,7 @@ def install():
         shutil.copytree(fw, dest, symlinks=True)
         command("codesign", "--force", "--sign", "-", dest)
     command("codesign", "--force", "--sign", "-", app)
-    command("xcrun", "simctl", "install", (WORK/"device").read_text(), app, timeout=90)
+    command("xcrun", "simctl", "install", udid, app, timeout=90)
 
 
 if __name__ == "__main__":
