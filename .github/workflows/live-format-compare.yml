@@ -16,7 +16,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Prepare the local media decoder
-        run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+        run: |
+          if command -v ffmpeg && command -v ffprobe; then exit 0; fi
+          if test -f /etc/apt/apt-mirrors.txt; then
+            printf '%s\tpriority:1\n%s\tpriority:2\n' \
+              'https://ftp.osuosl.org/pub/ubuntu/' 'https://mirrors.kernel.org/ubuntu/' \
+              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=12 update -qq
+          sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg
       - name: Check the selected live signal and one control
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
