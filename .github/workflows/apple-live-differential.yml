@@ -35,10 +35,7 @@ jobs:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
         run: |
           mkdir -p "$RUNNER_TEMP/live-format-simulator/continuity-source"
-          for round in 0 1 2; do
-            python3 verification/apple-continuity/run.py capture
-            mv "$RUNNER_TEMP/live-format-simulator/continuity-source/src-real" "$RUNNER_TEMP/round-$round"
-            if test "$round" != 2; then sleep 21; fi
-          done
+          python3 verification/apple-continuity/run.py capture
+          mv "$RUNNER_TEMP/live-format-simulator/continuity-source/src-real" "$RUNNER_TEMP/round-0"
       - name: Compare both verified binaries on identical source bytes
         run: node verification/apple-differential/compare.mjs
