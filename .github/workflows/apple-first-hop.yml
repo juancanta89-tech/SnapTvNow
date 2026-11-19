@@ -1,0 +1,21 @@
+name: Inspect Apple first-hop live negotiation
+on:
+  push:
+    branches: [verify/live-transport-20261119]
+    paths:
+      - .github/workflows/apple-first-hop.yml
+      - verification/live-formats/first_hop.py
+permissions:
+  contents: read
+jobs:
+  headers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Check the actual first response without emitting destinations
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/live-formats/first_hop.py
