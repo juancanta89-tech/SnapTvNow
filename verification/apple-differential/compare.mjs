@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {convertWithModule} from '../apple-continuity/edge/cloudflare-worker/src/codec-runtime.mjs';
@@ -22,10 +23,20 @@ for(const round of [0,1,2]){
       return {ok:out.init.length>0 && out.media.length>0,diagnostics:out.diagnostics};
     }catch(e){return {ok:false,code:e.message.match(/^apple_segment_codec_\d+_-?\d+$/)?.[0] || 'error',diagnostics:e.diagnostics}}};
     const was=attempt(original,convertPrior),now=attempt(candidate,convertWithModule);
+    let timing;
+    if(!was.ok || !now.ok){
+      const raw=execFileSync('ffprobe',['-v','error','-select_streams','a:0','-show_packets','-show_entries','packet=pts_time,duration_time,size','-of','json',join(sample,name)],{stdio:['ignore','pipe','ignore'],encoding:'utf8'});
+      const packets=JSON.parse(raw).packets;
+      const first=Number(packets[0].pts_time), at=(now.diagnostics?.firstInvalid??1)-1;
+      const gaps=packets.slice(1).map((p,i)=>Math.round((Number(p.pts_time)-Number(packets[i].pts_time)-Number(packets[i].duration_time??0.024))*1000));
+      const axis=packets.map((p,i)=>({index:i+1,rel_ms:Math.round((Number(p.pts_time)-first)*1000),duration_ms:Math.round(Number(p.duration_time??0.024)*1000),bytes:Number(p.size),offset_vs_24ms:Math.round((Number(p.pts_time)-first-i*0.024)*1000)}));
+      const pcm=execFileSync('ffmpeg',['-v','error','-i',join(sample,name),'-map','0:a:0','-ac','1','-ar','48000','-f','s16le','pipe:1'],{stdio:['ignore','pipe','ignore'],maxBuffer:16*1024*1024});
+      timing={ffprobe_packets:packets.length,first_pts90:Math.round(first*90000),last_pts90:Math.round(Number(packets.at(-1).pts_time)*90000),decoded_samples_48k:pcm.length/2,unusual_gaps:gaps.filter(t=>Math.abs(t)>3).slice(0,12),near_bad:axis.slice(Math.max(0,at-2),at+4)};
+    }
     if(!was.ok)fault++;
     if(!now.ok)errors++;
     if(!was.ok&&now.ok)recovered++;
-    console.log(JSON.stringify({segment:sequence,bytes:bytes.length,original:was,candidate:now}));
+    console.log(JSON.stringify({segment:sequence,bytes:bytes.length,original:was,candidate:now,timing}));
   }
 }
 console.log(JSON.stringify({case:'same_bytes',segments:seen.size,fault,recovered,errors}));
