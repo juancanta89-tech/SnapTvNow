@@ -4,6 +4,7 @@ on:
     branches: [verify/live-release-99-20261119]
 permissions:
   contents: read
+  actions: read
 jobs:
   native:
     runs-on: macos-26
@@ -21,6 +22,16 @@ jobs:
           for attempt in {1..60}; do
             if gh api repos/juancanta89-tech/SnapTvNow/git/ref/heads/verify/release-99-active-20261119 --silent >/dev/null 2>&1; then exit 0; fi
             sleep 15
+          done
+          exit 1
+      - name: Wait for fragment sampling to finish before using the single control session
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..90}; do
+            state=$(gh api "repos/juancanta89-tech/SnapTvNow/actions/runs?head_sha=$GITHUB_SHA&per_page=10" --jq '.workflow_runs[] | select(.name == "Decode released Apple fragments and audible samples") | .status' 2>/dev/null || true)
+            if [[ "$state" == completed ]]; then exit 0; fi
+            sleep 10
           done
           exit 1
       - name: Open both delivery formats in the native player
