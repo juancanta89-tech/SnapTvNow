@@ -1,0 +1,38 @@
+name: Verify continuous Apple playback of the real and synthetic channel
+on:
+  push:
+    branches: [verify/ios-fragment-continuity-20261119]
+    paths:
+      - 'verification/apple-continuity/**'
+      - '.github/workflows/ios-fragment-continuity.yml'
+permissions:
+  contents: read
+jobs:
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      APPLE_EDGE_REPO: ${{ github.workspace }}/verification/apple-continuity/edge
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install the AVPlayer measurement app on an iPhone simulator
+        run: python3 verification/apple-continuity/run.py prepare
+      - name: Prepare FFmpeg and the pinned production WASM
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          command -v ffprobe || brew install ffmpeg
+          file="$APPLE_EDGE_REPO/cloudflare-worker/src/apple-segment-codec.wasm"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/00954abe773e34cd200ef7afa3a7334a9a811d5f" > "$file"
+          echo "6f6068b39b82e1b4923fd7602444346d467da283845c573a67916b605b35e46f  $file" | shasum -a 256 -c -
+      - name: Read complete current segments for the registered Gol Perú channel
+        id: source
+        continue-on-error: true
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/apple-continuity/run.py capture
+      - name: Check native video across segment boundaries and decoded audio
+        run: python3 verification/apple-continuity/run.py run
