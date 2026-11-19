@@ -1,0 +1,41 @@
+name: Diagnose real Apple live audio access units
+on:
+  push:
+    branches: [verify/ios-fragment-continuity-20261119]
+    paths:
+      - 'verification/apple-probe-linux/**'
+      - '.github/workflows/apple-fragment-probe.yml'
+permissions:
+  contents: read
+jobs:
+  audio:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      APPLE_EDGE_REPO: ${{ github.workspace }}/verification/apple-continuity/edge
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare FFmpeg and pinned Worker binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! command -v ffprobe; then
+            if test -f /etc/apt/apt-mirrors.txt; then printf '%s\tpriority:1\n%s\tpriority:2\n' 'https://ftp.osuosl.org/pub/ubuntu/' 'https://mirrors.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null; fi
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=12 update -qq
+            sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg
+          fi
+          file="$APPLE_EDGE_REPO/cloudflare-worker/src/apple-segment-codec.wasm"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/00954abe773e34cd200ef7afa3a7334a9a811d5f" > "$file"
+          echo "6f6068b39b82e1b4923fd7602444346d467da283845c573a67916b605b35e46f  $file" | sha256sum --check
+      - name: Capture current control channel to ephemeral disk
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/live-format-simulator/continuity-source"
+          python3 verification/apple-continuity/run.py capture
+      - name: Analyze complete packets and compare codecs without credentials
+        run: |
+          python3 verification/apple-probe-linux/inspect.py
+          node verification/apple-probe-linux/convert.mjs
