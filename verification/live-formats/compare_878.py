@@ -31,6 +31,9 @@ def tagged(url,budget):
     try:
         with opener.open(req,timeout=24) as r:
             actual=own_url(r.geturl())
+            if r.headers.get("X-SMN-Live-Fallback")=="next-channel":
+                emit(stage="channel_fallback",account_path=actor,phase=kind(actual))
+                raise ProbeError("other_channel_fallback")
             buf=r.read(budget+1)
             emit(stage="hop",account_path=actor,phase=kind(actual),status=r.status,bytes=len(buf))
             if len(buf)>budget or (r.headers.get("Content-Length","").isdigit() and len(buf)!=int(r.headers["Content-Length"])):
