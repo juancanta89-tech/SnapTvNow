@@ -30,8 +30,8 @@ jobs:
           python3 verification/apple-continuity/run.py prepare
           if test -n "$installer"; then wait "$installer"; fi
           file="$APPLE_EDGE_REPO/cloudflare-worker/src/apple-segment-codec.wasm"
-          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/dd1e7c7ff54b0dfc4342d99965dca6e91c6bc786" > "$file"
-          echo "6ff9c1ac93a27c71a27199729d4dfc11c564fea1f69e5f0f15e54f358f0bd44c  $file" | shasum -a 256 -c -
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/5a6d41c831cbcbceb9e24212f6f244ea050c4063" > "$file"
+          echo "176a664cb35ad6766f4a6b8795706ee65f312441a5ec80a05f79c46f88e799e1  $file" | shasum -a 256 -c -
       - name: Read complete current segments for the registered Gol Perú channel
         id: source
         continue-on-error: true

@@ -130,6 +130,18 @@ def measure(name,port):
     finally:
         subprocess.run(["xcrun","simctl","terminate",dev,BUNDLE],capture_output=True)
 
+def references(src,public,port):
+    for scenario in ("real-copy","real-progressive"):
+        out=public/scenario;out.mkdir()
+        video=["-c:v","copy"] if scenario=="real-copy" else ["-vf","yadif=mode=send_frame:parity=auto:deint=all,scale=-2:720","-c:v","libx264","-preset","veryfast","-threads","4","-g","120","-sc_threshold","0"]
+        cmd=["ffmpeg","-v","error","-protocol_whitelist","file,pipe,crypto","-i",str(src/"index.m3u8"),"-map","0:v:0","-map","0:a:0",*video,"-af","aresample=async=1","-c:a","aac","-b:a","128k","-f","hls","-hls_segment_type","fmp4","-hls_time","4","-hls_playlist_type","vod","-hls_segment_filename",str(out/"part-%03d.m4s"),str(out/"index.m3u8")]
+        try:
+            subprocess.run(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120,check=True)
+            audio=certify_audio(out);video_ok=measure(scenario,port)
+            if audio and video_ok:break
+        except Exception as exc:
+            print(json.dumps(dict(case=scenario,error=type(exc).__name__)),flush=True)
+
 def run():
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp); public=root/"served";public.mkdir()
@@ -143,8 +155,10 @@ def run():
                     output=public/name
                     subprocess.run(["node",str(Path(os.environ["APPLE_EDGE_REPO"])/"cloudflare-worker/tests/apple-live-fixture.mjs"),str(src/"index.m3u8"),str(output)],check=True,timeout=180)
                     audio=certify_audio(output);video=measure(name,server.server_port);success=success and audio and video
+                    if name=="real" and not (audio and video):references(src,public,server.server_port)
                 except Exception as exc:
                     print(json.dumps(dict(case=name,error=str(exc) if isinstance(exc,ProbeError) else type(exc).__name__)),flush=True);success=False
+                    if name=="real" and (src/"index.m3u8").is_file():references(src,public,server.server_port)
         finally:server.shutdown();server.server_close()
         return success
 
@@ -154,17 +168,17 @@ if __name__=="__main__":
         try:
             dest=WORK/"continuity-source"
             dest.mkdir(exist_ok=True)
-            for attempt in range(3):
+            for attempt in range(7):
                 with tempfile.TemporaryDirectory(dir=dest) as temporary:
                     try:
                         result=collect(Path(temporary))
                         result.rename(dest/"src-real")
                         break
                     except ProbeError as error:
-                        retry=str(error) in {"http_404","http_410","http_429","http_502","http_503","http_504","connection_error","short_live_window"}
-                        if not retry or attempt == 2:raise
+                        retry=str(error) in {"http_404","http_410","http_409","http_429","http_502","http_503","http_504","connection_error","short_live_window"}
+                        if not retry or attempt == 6:raise
                         print(json.dumps(dict(stage="source_retry",attempt=attempt+1,reason=str(error))),flush=True)
-                        time.sleep(2+2*attempt)
+                        time.sleep(min(23,4+4*attempt))
         except Exception as exc:
             print(json.dumps(dict(stage="capture",error=str(exc) if isinstance(exc,ProbeError) else type(exc).__name__)),flush=True)
             sys.exit(1)

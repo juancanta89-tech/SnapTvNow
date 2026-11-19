@@ -19,7 +19,7 @@
   self.window.rootViewController=[UIViewController new]; [self.window makeKeyAndVisible];
   self.sample=NSProcessInfo.processInfo.environment[@"SAMPLE"];
   NSString *port=NSProcessInfo.processInfo.environment[@"PORT"];
-  if(![@[@"real",@"synthetic"] containsObject:self.sample] || !port.intValue) return YES;
+  if(![@[@"real",@"synthetic",@"real-copy",@"real-progressive"] containsObject:self.sample] || !port.intValue) return YES;
   NSURL *url=[NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%d/%@/index.m3u8",port.intValue,self.sample]];
   AVPlayerItem *item=[AVPlayerItem playerItemWithURL:url];
   self.output=[[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:@{(NSString *)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
