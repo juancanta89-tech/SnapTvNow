@@ -1,0 +1,49 @@
+name: Read the selected public-to-source channel references
+on:
+  push:
+    branches: [verify/live-transport-20261119]
+    paths: [.github/workflows/live-references.yml]
+permissions:
+  contents: read
+jobs:
+  catalogue:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Print only the requested catalogue IDs and names
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        working-directory: verification/live-formats
+        run: |
+          python3 - <<'PY'
+          from probe import api, words, emit, ProbeError
+          found = set()
+          def inspect(rows):
+              for row in rows:
+                  public = str(row.get("stream_id", ""))
+                  profile = row.get("smn_profile") or {}
+                  source = str(profile.get("id", ""))
+                  if not source.isdigit() or not public.isdigit():
+                      continue
+                  if public in found or public not in {"871", "876", "879", "1675"} and source != "163964":
+                      continue
+                  found.add(public)
+                  emit(stage="catalogue_id", public_id=public, source_id=source, label=words(row.get("name",""))[:95],
+                       ccf=profile.get("server")=="ccf")
+                  if source == "163964":
+                      found.add("matched_source")
+          try:
+              for cat in api("get_live_categories"):
+                  category = str(cat.get("category_id", ""))
+                  if "peru" in words(cat.get("category_name")).split() and category.isdigit():
+                      inspect(api("get_live_streams", category_id=category))
+              if not {"871", "876", "879", "1675", "matched_source"} <= found:
+                  inspect(api("get_live_streams"))
+              emit(stage="lookup", origin_163964_found="matched_source" in found)
+          except Exception as ex:
+              emit(stage="lookup", error=str(ex) if isinstance(ex, ProbeError) else type(ex).__name__)
+              raise SystemExit(1)
+          PY
