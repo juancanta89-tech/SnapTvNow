@@ -26,8 +26,8 @@ jobs:
         run: |
           command -v ffprobe || brew install ffmpeg
           file="$APPLE_EDGE_REPO/cloudflare-worker/src/apple-segment-codec.wasm"
-          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/00954abe773e34cd200ef7afa3a7334a9a811d5f" > "$file"
-          echo "6f6068b39b82e1b4923fd7602444346d467da283845c573a67916b605b35e46f  $file" | shasum -a 256 -c -
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/4bfb38f616461c428de9b4d50b80466248d704df" > "$file"
+          echo "1cb9ede66d9cc68fc576d900dcb69d7e917aeb0e7c211e26af6646cf5770c0b2  $file" | shasum -a 256 -c -
       - name: Read complete current segments for the registered Gol Perú channel
         id: source
         continue-on-error: true

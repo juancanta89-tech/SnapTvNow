@@ -9,10 +9,10 @@ let count=0;
 for(const [i,name] of names.entries()){
   try {
     const result=convertWithModule(module,await readFile(resolve(root,name)),{sequence:i,epochMs:Date.now()});
-    console.log(JSON.stringify({segment:i,success:true,media:result.media.length,init:result.init.length}));
+    console.log(JSON.stringify({segment:i,success:true,media:result.media.length,init:result.init.length,diagnostics:result.diagnostics}));
     count++;
   }catch(error){const message=error.message.match(/^apple_segment_codec_\d+_-?\d+$/)?.[0]||'other';
-    console.log(JSON.stringify({segment:i,success:false,diag:message}));
+    console.log(JSON.stringify({segment:i,success:false,diag:message,diagnostics:error.diagnostics}));
   }
 }
 process.exitCode=(count===names.length ? 0 : 1);

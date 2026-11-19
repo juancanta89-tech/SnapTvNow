@@ -5,7 +5,7 @@ const segmentLimit = 8 * 1024 * 1024;
 export function appleGolPeruChannel(title) {
   if (typeof title !== 'string' || title.length > 200) return false;
   const normalized = title.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim();
-  return /^PER\s*[-:|]\s*GOL\s+PERU(?:\s*\((?:L|M|TV|W|SD|HD|FHD|UHD|4K|720P?|1080P?|2160P?)\))*$/i.test(normalized);
+  return /^PER\s*[-:|]\s*GOL\s+PERU(?:\s*\((?:L|M|TV|W|SD|HD|FHD|UHD|4K|720P?|1080P?|2160P?)\))*(?:\s+(?:720P?|1080P?|2160P?))?$/i.test(normalized);
 }
 
 export async function appleFragmentPlaylist(text, sign) {
@@ -14,11 +14,19 @@ export async function appleFragmentPlaylist(text, sign) {
   const base = lines.find(line => line.startsWith('#EXT-X-MEDIA-SEQUENCE:'));
   let sequence = base === undefined ? 0 : Number(base.slice(22));
   if (!Number.isSafeInteger(sequence) || sequence < 0) return null;
+  const discontinuityLine = lines.find(line => line.startsWith('#EXT-X-DISCONTINUITY-SEQUENCE:'));
+  let period = discontinuityLine ? Number(discontinuityLine.split(':')[1]) : 0;
+  if (!Number.isSafeInteger(period) || period < 0) return null;
   const segments = [];
+  let nextDate = null;
   let map = true, durationAt = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (line === '#EXT-X-DISCONTINUITY') map = true;
+    if (line === '#EXT-X-DISCONTINUITY') { period++; map = true; }
+    if (line.startsWith('#EXT-X-PROGRAM-DATE-TIME:')) {
+      const ms = Date.parse(line.slice(25));
+      nextDate = Number.isFinite(ms) ? ms : null;
+    }
     if (line.startsWith('#EXTINF:')) {
       if (durationAt !== -1 || !/^#EXTINF:\d+(?:\.\d+)?,/.test(line)) return null;
       durationAt = i;
@@ -26,15 +34,34 @@ export async function appleFragmentPlaylist(text, sign) {
     if (!line || line.startsWith('#')) continue;
     if (durationAt === -1 || !Number.isSafeInteger(sequence) || sequence > 0xffffffff ||
         segments.length >= 48 || /\.(?:m4s|mp4|aac|vtt|m3u8)(?:$|[?#])/i.test(line)) return null;
-    segments.push({uri:line, index:i, durationAt, map, sequence});
+    const durationMs = Number(lines[durationAt].slice(8).split(',')[0]) * 1000;
+    if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > 24000) return null;
+    segments.push({uri:line, index:i, durationAt, durationMs, map, sequence, period, epochMs:nextDate});
+    if (nextDate !== null) nextDate += durationMs;
     sequence++;
     durationAt = -1;
     map = false;
   }
   if (!segments.length || durationAt !== -1) return null;
+  // A probe two segments behind the live edge avoids either volatile endpoint.
+  // The signed map embeds its tiny verified init and survives the source window.
+  let edge = Date.now();
+  const groups = new Map();
+  for (const segment of segments) {
+    if (!groups.has(segment.period)) groups.set(segment.period,[]);
+    groups.get(segment.period).push(segment);
+  }
+  if (groups.size > 3) return null;
+  for (let i = segments.length-1; i >= 0; i--) {
+    const segment = segments[i]; edge -= segment.durationMs;
+    segment.epochMs = Math.round(segment.epochMs ?? edge);
+  }
   await Promise.all(segments.map(async segment => {
     const {uri, index, durationAt, map, sequence} = segment;
-    const [media, init] = await Promise.all([sign(uri, sequence, 'media'), map ? sign(uri, sequence, 'init') : null]);
+    const group = groups.get(segment.period);
+    const probe = group[Math.max(0,group.length-2)];
+    const [media, init] = await Promise.all([sign(uri, sequence, 'media', segment),
+      map ? sign(probe.uri, probe.sequence, 'init', probe) : null]);
     lines[index] = media;
     if (map) lines[durationAt] = '#EXT-X-MAP:URI="' + init + '"\n' + lines[durationAt];
   }));
@@ -50,27 +77,22 @@ async function readSegment(response, signal) {
     throw Error('invalid_apple_segment');
   }
   const reader = response.body.getReader();
-  const parts = [];
-  let bytes = 0;
-  const timer = setTimeout(() => reader.cancel('read_timeout').catch(() => {}), 15000);
+  const declared = Number(response.headers.get('content-length'));
+  const storage = new Uint8Array(declared > 0 ? declared : segmentLimit);
+  let bytes = 0, timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; void reader.cancel().catch(() => {}); }, 15000);
   let complete = false;
   try {
-    const deadline = Date.now() + 15000;
     for (;;) {
-      if (signal.aborted || Date.now() >= deadline) throw Error('invalid_apple_segment');
       const chunk = await reader.read();
-      if (signal.aborted || Date.now() >= deadline) throw Error('invalid_apple_segment');
+      if (signal.aborted || timedOut) throw Error('invalid_apple_segment');
       if (chunk.done) break;
-      bytes += chunk.value.length;
-      if (bytes > segmentLimit) throw Error('invalid_apple_segment');
-      parts.push(chunk.value);
+      if (bytes + chunk.value.length > storage.length) throw Error('invalid_apple_segment');
+      storage.set(chunk.value, bytes); bytes += chunk.value.length;
     }
-    if (!bytes) throw Error('invalid_apple_segment');
-    const data = new Uint8Array(bytes);
-    let at = 0;
-    for (const part of parts) { data.set(part, at); at += part.length; }
+    if (!bytes || (declared > 0 && bytes !== declared)) throw Error('invalid_apple_segment');
     complete = true;
-    return data;
+    return storage.subarray(0,bytes);
   } finally {
     clearTimeout(timer);
     if (!complete) void reader.cancel().catch(() => {});
@@ -78,7 +100,7 @@ async function readSegment(response, signal) {
   }
 }
 
-function rangeResponse(bytes, part, req) {
+export function appleFragmentResponse(bytes, part, req) {
   const total = bytes.byteLength;
   const headers = {'content-type':part === 'init' ? 'video/mp4' : 'video/iso.segment', 'cache-control':'private, no-store', 'accept-ranges':'bytes'};
   let start = 0, end = total - 1;
@@ -101,46 +123,43 @@ function rangeResponse(bytes, part, req) {
   return new Response(req.method === 'HEAD' ? null : bytes.subarray(start,end+1), {status:range ? 206 : 200, headers});
 }
 
-// This cache only lives inside one Worker isolate. Every hit follows the same
-// lease and expiry checks as a cold request. Coalesce init and media requests.
-export function createAppleFragments(convertSegment) {
+// Do not share response streams or pending fetch promises across request contexts.
+// Source reads may overlap (init + first segment); the CPU transform is synchronous.
+export function createAppleFragments(convert) {
   const cache = new Map();
-  const pending = new Map();
-  let retained = 0;
-  let processing = Promise.resolve();
+  let retained = 0, activeReads = 0;
   function remove(key, entry) { retained -= entry.bytes; cache.delete(key); }
   return async function fragment(req, claim, fetchSource) {
-    const part = claim.applePart, sequence = claim.appleSequence;
-    if (!['init','media'].includes(part) || !Number.isInteger(sequence) || sequence < 0 || sequence > 0xffffffff) throw Error('invalid_apple_segment');
-    const key = JSON.stringify([claim.sid, claim.lease_id, claim.request_id, claim.resource, sequence]);
+    const {applePart:part, appleSequence:sequence} = claim;
+    if (!['init','media'].includes(part) || !Number.isInteger(sequence) || sequence < 0 || sequence > 0xffffffff)
+      throw Error('invalid_apple_segment');
+    const key = JSON.stringify([claim.sid,claim.lease_id,claim.request_id,claim.resource,sequence]);
     const now = Date.now();
     for (const [k,v] of cache) if (v.until <= now) remove(k,v);
     let result = cache.get(key)?.result;
+    while (!result && activeReads >= 2) {
+      if (req.signal.aborted || Date.now()-now > 4000) return new Response(null,{status:503,headers:{'Retry-After':'1'}});
+      await new Promise(resolve=>setTimeout(resolve,50));
+      result = cache.get(key)?.result;
+    }
     if (!result) {
-      let job = pending.get(key);
-      if (!job) {
-        if (pending.size >= 4) return new Response(null,{status:503,headers:{'Retry-After':'1'}});
-        job = processing.then(async () => {
-          if (req.signal.aborted || claim.exp <= Date.now()) throw Error('invalid_apple_segment');
-          const data = await readSegment(await fetchSource(), req.signal);
-          const output = await convertSegment(data, {sequence});
-          if (!(output.init instanceof Uint8Array) || !(output.media instanceof Uint8Array) || !output.init.length || !output.media.length ||
-              output.init.byteLength + output.media.byteLength > segmentLimit + 262144) throw Error('invalid_apple_segment');
-          const bytes = output.init.byteLength + output.media.byteLength;
-          while (cache.size && (retained + bytes > segmentLimit + 262144 || cache.size >= 4)) {
+      activeReads++;
+      try {
+        const data = await readSegment(await fetchSource(),req.signal);
+        result = cache.get(key)?.result;
+        if (!result) {
+          result = convert(data,{sequence,epochMs:claim.appleEpoch});
+          const bytes = result.init.byteLength + result.media.byteLength;
+          if (!(result.init instanceof Uint8Array) || !(result.media instanceof Uint8Array) || !result.init.length ||
+              result.init.length > 4096 || !result.media.length || bytes > segmentLimit + 262144) throw Error('invalid_apple_segment');
+          while (cache.size && (retained+bytes > segmentLimit+262144 || cache.size >= 4)) {
             const [oldKey,entry] = cache.entries().next().value; remove(oldKey,entry);
           }
-          retained += bytes;
-          cache.set(key, {result:output, bytes, until:Math.min(claim.exp,Date.now()+30000)});
-          return output;
-        });
-        processing = job.catch(() => {});
-        pending.set(key,job);
-      }
-      try { result = await job; }
-      finally { if (pending.get(key) === job) pending.delete(key); }
+          retained += bytes; cache.set(key,{result,bytes,until:Math.min(claim.exp,Date.now()+45000)});
+        }
+      } finally { activeReads--; }
     }
     if (req.signal.aborted || claim.exp <= Date.now()) return new Response(null,{status:410});
-    return rangeResponse(result[part], part, req);
+    return appleFragmentResponse(result[part],part,req);
   };
 }
