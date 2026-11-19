@@ -1,17 +1,12 @@
-name: Measure live HLS and TS in Apple player
+name: Play released Gol Peru for twenty seconds on iOS
 on:
   push:
-    branches: [verify/live-transport-20261119]
-    paths:
-      - verification/live-formats/NativePlayback.swift
-      - verification/live-formats/simulator.py
-      - verification/live-formats/alternatives.py
-      - .github/workflows/apple-live-compare.yml
+    branches: [verify/live-release-99-20261119]
 permissions:
   contents: read
 jobs:
   native:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

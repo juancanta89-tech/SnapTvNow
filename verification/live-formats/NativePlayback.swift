@@ -47,32 +47,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
         append(["stage": "simulator", "os": UIDevice.current.systemVersion])
-        if let alternatives = env["VARIANT_IDS"] {
-            if let port = env["SAMPLE_PORT"], let number = UInt16(port), number > 0 {
-                for variant in ["progressive", "fragmented", "aac", "original"] {
-                    if let local = URL(string: "http://localhost:" + String(number) + "/" + variant + "/index.m3u8") {
-                        await play(local, label: "same source " + variant, format: "local_hls")
-                    }
-                }
-                append(["stage": "finished"])
-                return
-            }
-            for identifier in alternatives.split(separator: ",").map(String.init) {
-                guard identifier.count <= 14, identifier.utf8.allSatisfy({ (48...57).contains($0) }),
-                      let url = URL(string: "https://api.snaptvnow.com/live/dieguito2026/" + encoded + "/" + identifier + ".m3u8") else { continue }
-                await play(url, label: "variant " + identifier, format: "m3u8")
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-            append(["stage": "finished"])
-            return
-        }
-        for (label, key) in [("liga 1 max", "LIGA_ID"), ("gol peru l", "PRIMARY_ID"), ("canal n", "CONTROL_ID")] {
-            guard let identifier = env[key], !identifier.isEmpty, identifier.count <= 14,
-                  identifier.utf8.allSatisfy({ (48...57).contains($0) }) else { continue }
-            for format in ["m3u8", "ts"] {
-                guard let url = URL(string: "https://api.snaptvnow.com/live/dieguito2026/" + encoded + "/" + identifier + "." + format) else { continue }
-                await play(url, label: label, format: format)
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+        guard env["PRIMARY_ID"] == "876" else { append(["stage": "scope_failed"]); return }
+        for format in ["ts", "m3u8"] {
+            if let url = URL(string: "https://api.snaptvnow.com/live/dieguito2026/" + encoded + "/876." + format) {
+                await play(url, label: "Gol Peru L 876", format: format)
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
             }
         }
         append(["stage": "finished"])
@@ -92,6 +71,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         var frameCount = 0
         var lastFrame: CMTime?
         var firstFrameMs: Int?
+        var firstMediaFrame: Double?
+        var lastMediaFrame: Double?
+        var lastNewPicture: Double?
+        var maxPictureGap = 0.0
+        var occupied = Set<Int>()
+        var frameSpan = 0.0
+        var confirmed = false
         repeat {
             try? await Task.sleep(nanoseconds: 150_000_000)
             let time = item.currentTime().seconds
@@ -106,11 +92,25 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                    presented.isNumeric && (lastFrame == nil || CMTimeCompare(presented, lastFrame!) != 0) {
                     lastFrame = presented
                     frameCount += 1
+                    let now = CACurrentMediaTime()
+                    if let lastNewPicture { maxPictureGap = max(maxPictureGap, now-lastNewPicture) }
+                    lastNewPicture = now
+                    if presented.seconds.isFinite {
+                        if firstMediaFrame == nil { firstMediaFrame = presented.seconds }
+                        if let prior = lastMediaFrame, presented.seconds < prior - 0.5 {
+                            occupied.removeAll(); firstMediaFrame = presented.seconds
+                        }
+                        lastMediaFrame = presented.seconds
+                        frameSpan = max(0, presented.seconds - (firstMediaFrame ?? presented.seconds))
+                        occupied.insert(Int(frameSpan / 2))
+                    }
                     if firstFrameMs == nil { firstFrameMs = Int((CACurrentMediaTime() - start) * 1000) }
                 }
             }
-            if item.status == .failed || (frameCount >= 3 && clockAdvance >= 1.5) { break }
-        } while CACurrentMediaTime() - start < 25
+            confirmed = frameSpan >= 20 && clockAdvance >= 20 && frameCount >= 45 &&
+                (0..<10).allSatisfy { occupied.contains($0) } && maxPictureGap <= 4
+            if item.status == .failed || confirmed { break }
+        } while CACurrentMediaTime() - start < 72
 
         var result: [String: Any] = [
             "stage": "apple_playback", "case": label, "format": format,
@@ -118,7 +118,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             "presented_frames": frameCount, "clock_ms": Int(clockAdvance * 1000),
             "video_display_ready": layer.isReadyForDisplay,
             "audio_tracks": item.tracks.filter { $0.assetTrack?.mediaType == .audio }.count,
-            "outcome": frameCount >= 3 && clockAdvance >= 1.5 ? "video_playing" :
+            "enabled_audio_tracks": item.tracks.filter { $0.isEnabled && $0.assetTrack?.mediaType == .audio }.count,
+            "frame_span_ms": Int(frameSpan * 1000), "max_picture_gap_ms": Int(maxPictureGap * 1000),
+            "two_second_buckets": occupied.count,
+            "segments_reported": (item.accessLog()?.events ?? []).reduce(0) { $0 + $1.numberOfSegmentsDownloaded },
+            "stalls_reported": (item.accessLog()?.events ?? []).reduce(0) { $0 + $1.numberOfStalls },
+            "outcome": confirmed ? "continuous_video" :
                 (item.status == .failed ? "player_error" : "no_confirmed_video")
         ]
         if let firstFrameMs { result["first_frame_ms"] = firstFrameMs }
