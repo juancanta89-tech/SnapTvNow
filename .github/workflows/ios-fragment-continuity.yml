@@ -17,17 +17,21 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Install the AVPlayer measurement app on an iPhone simulator
-        run: python3 verification/apple-continuity/run.py prepare
-      - name: Prepare FFmpeg and the pinned production WASM
+      - name: Prepare the iPhone simulator and pinned media converter
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           GH_TOKEN: ${{ github.token }}
         run: |
-          command -v ffprobe || brew install ffmpeg
+          installer=""
+          if ! command -v ffprobe; then
+            brew install ffmpeg > "$RUNNER_TEMP/apple-ffmpeg-install.log" 2>&1 &
+            installer=$!
+          fi
+          python3 verification/apple-continuity/run.py prepare
+          if test -n "$installer"; then wait "$installer"; fi
           file="$APPLE_EDGE_REPO/cloudflare-worker/src/apple-segment-codec.wasm"
-          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/4bfb38f616461c428de9b4d50b80466248d704df" > "$file"
-          echo "1cb9ede66d9cc68fc576d900dcb69d7e917aeb0e7c211e26af6646cf5770c0b2  $file" | shasum -a 256 -c -
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/dd1e7c7ff54b0dfc4342d99965dca6e91c6bc786" > "$file"
+          echo "6ff9c1ac93a27c71a27199729d4dfc11c564fea1f69e5f0f15e54f358f0bd44c  $file" | shasum -a 256 -c -
       - name: Read complete current segments for the registered Gol Perú channel
         id: source
         continue-on-error: true

@@ -27,9 +27,9 @@ jobs:
             sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg
           fi
           gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/00954abe773e34cd200ef7afa3a7334a9a811d5f" > "$RUNNER_TEMP/original.wasm"
-          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/4bfb38f616461c428de9b4d50b80466248d704df" > "$RUNNER_TEMP/candidate.wasm"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/dd1e7c7ff54b0dfc4342d99965dca6e91c6bc786" > "$RUNNER_TEMP/candidate.wasm"
           echo "6f6068b39b82e1b4923fd7602444346d467da283845c573a67916b605b35e46f  $RUNNER_TEMP/original.wasm" | sha256sum --check
-          echo "1cb9ede66d9cc68fc576d900dcb69d7e917aeb0e7c211e26af6646cf5770c0b2  $RUNNER_TEMP/candidate.wasm" | sha256sum --check
+          echo "6ff9c1ac93a27c71a27199729d4dfc11c564fea1f69e5f0f15e54f358f0bd44c  $RUNNER_TEMP/candidate.wasm" | sha256sum --check
       - name: Capture current control channel to ephemeral disk
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}

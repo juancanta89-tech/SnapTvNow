@@ -27,7 +27,7 @@ def prepare():
         args.extend(["-framework",fw])
     command(*args,"-o",app/"LiveFormats",timeout=300)
     command("codesign","--force","--sign","-",app)
-    command("xcrun","simctl","bootstatus",device,"-b",timeout=300)
+    command("xcrun","simctl","bootstatus",device,"-b",timeout=480)
     command("xcrun","simctl","install",device,app,timeout=180)
 
 def fetch(url, limit):
@@ -154,7 +154,17 @@ if __name__=="__main__":
         try:
             dest=WORK/"continuity-source"
             dest.mkdir(exist_ok=True)
-            collect(dest)
+            for attempt in range(3):
+                with tempfile.TemporaryDirectory(dir=dest) as temporary:
+                    try:
+                        result=collect(Path(temporary))
+                        result.rename(dest/"src-real")
+                        break
+                    except ProbeError as error:
+                        retry=str(error) in {"http_404","http_410","http_429","http_502","http_503","http_504","connection_error","short_live_window"}
+                        if not retry or attempt == 2:raise
+                        print(json.dumps(dict(stage="source_retry",attempt=attempt+1,reason=str(error))),flush=True)
+                        time.sleep(2+2*attempt)
         except Exception as exc:
             print(json.dumps(dict(stage="capture",error=str(exc) if isinstance(exc,ProbeError) else type(exc).__name__)),flush=True)
             sys.exit(1)
