@@ -1,7 +1,7 @@
-name: Decode released Apple fragments and audible samples
+name: Compare Apple and original live delivery on public channel 878
 on:
   push:
-    branches: [verify/live-release-99-20261119]
+    branches: [verify/live-release-99-878-20261119]
 permissions:
   contents: read
 jobs:
@@ -22,16 +22,7 @@ jobs:
           fi
           sudo apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=12 update -qq
           sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg
-      - name: Wait for the operator to confirm this release reached production
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for attempt in {1..60}; do
-            if gh api repos/juancanta89-tech/SnapTvNow/git/ref/heads/verify/release-99-active-20261119 --silent >/dev/null 2>&1; then exit 0; fi
-            sleep 15
-          done
-          exit 1
       - name: Decode HLS and transport stream samples
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
-        run: python3 verification/live-formats/release_fragments.py
+        run: python3 verification/live-formats/compare_878.py
