@@ -86,7 +86,10 @@ def collect(root):
     lines=["#EXTM3U","#EXT-X-VERSION:3",f"#EXT-X-TARGETDURATION:{target}",f"#EXT-X-MEDIA-SEQUENCE:{parts[0][0]}","#EXT-X-PLAYLIST-TYPE:VOD"]
     for _,duration,name,_ in parts:lines.extend([f"#EXTINF:{duration},",name])
     (dest/"index.m3u8").write_text("\n".join(lines+["#EXT-X-ENDLIST",""]))
-    print(json.dumps(dict(case="real",public_id=876,segments=len(parts),seconds=round(total,3),sizes=[p[3] for p in parts])),flush=True)
+    metadata=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_entries","stream=codec_type,codec_name,width,height,field_order","-of","json",str(dest/parts[0][2])],stderr=subprocess.DEVNULL,timeout=25))["streams"]
+    print(json.dumps(dict(case="real",public_id=876,segments=len(parts),seconds=round(total,3),sizes=[p[3] for p in parts],source_tracks=metadata)),flush=True)
+    if not any(x.get("codec_name")=="h264" for x in metadata) or not any(x.get("codec_name")=="mp2" for x in metadata):
+        raise ProbeError("original_codec_changed")
     return dest
 
 def synthetic(root):
