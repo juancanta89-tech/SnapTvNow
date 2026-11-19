@@ -7,7 +7,7 @@ permissions:
 jobs:
   decode:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 27
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -22,6 +22,15 @@ jobs:
           fi
           sudo apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=12 update -qq
           sudo apt-get -o Acquire::Retries=1 --no-install-recommends -y -qq install ffmpeg
+      - name: Wait for the operator to confirm this release reached production
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..60}; do
+            if gh api repos/juancanta89-tech/SnapTvNow/git/ref/heads/verify/release-99-active-20261119 --silent >/dev/null 2>&1; then exit 0; fi
+            sleep 15
+          done
+          exit 1
       - name: Decode HLS and transport stream samples
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}

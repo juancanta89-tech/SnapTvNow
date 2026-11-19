@@ -7,13 +7,22 @@ permissions:
 jobs:
   native:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
       - name: Build and install on an iPhone simulator
         run: python3 verification/live-formats/simulator.py prepare
+      - name: Wait for the operator to confirm this release reached production
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..60}; do
+            if gh api repos/juancanta89-tech/SnapTvNow/git/ref/heads/verify/release-99-active-20261119 --silent >/dev/null 2>&1; then exit 0; fi
+            sleep 15
+          done
+          exit 1
       - name: Open both delivery formats in the native player
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
