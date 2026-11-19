@@ -1,0 +1,50 @@
+name: Match source frame timing against native iPhone presentation
+on:
+  push:
+    branches: [verify/ios-fragment-continuity-20261119]
+    paths:
+      - 'verification/apple-frame-gaps/**'
+      - '.github/workflows/apple-frame-gaps.yml'
+permissions:
+  contents: read
+jobs:
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      APPLE_EDGE_REPO: ${{ github.workspace }}/verification/apple-continuity/edge
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare the iPhone simulator and pinned media converter
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          installer=""
+          if ! command -v ffprobe; then
+            brew install ffmpeg > "$RUNNER_TEMP/apple-ffmpeg-install.log" 2>&1 &
+            installer=$!
+          fi
+          python3 verification/apple-frame-gaps/run.py prepare
+          if test -n "$installer"; then wait "$installer"; fi
+          file="$APPLE_EDGE_REPO/cloudflare-worker/src/apple-segment-codec.wasm"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/git/blobs/5a6d41c831cbcbceb9e24212f6f244ea050c4063" > "$file"
+          echo "176a664cb35ad6766f4a6b8795706ee65f312441a5ec80a05f79c46f88e799e1  $file" | shasum -a 256 -c -
+      - name: Wait until the production test releases the control account
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 120); do
+            if test "$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/$GITHUB_REPOSITORY/contents/verification/apple-control-slot/allow-final-window.txt?ref=verify%2Fios-fragment-continuity-20261119" 2>/dev/null || true)" = "allow-native-frame-window"; then exit 0; fi
+            sleep 10
+          done
+          exit 1
+      - name: Read complete current segments for the registered Gol Perú channel
+        id: source
+        env:
+          DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
+        run: python3 verification/apple-frame-gaps/run.py capture
+      - name: Check native video across segment boundaries and decoded audio
+        run: python3 verification/apple-frame-gaps/measure.py
