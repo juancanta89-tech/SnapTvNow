@@ -121,7 +121,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             "enabled_audio_tracks": item.tracks.filter { $0.isEnabled && $0.assetTrack?.mediaType == .audio }.count,
             "frame_span_ms": Int(frameSpan * 1000), "max_picture_gap_ms": Int(maxPictureGap * 1000),
             "two_second_buckets": occupied.count,
-            "segments_reported": (item.accessLog()?.events ?? []).reduce(0) { $0 + $1.numberOfSegmentsDownloaded },
             "stalls_reported": (item.accessLog()?.events ?? []).reduce(0) { $0 + $1.numberOfStalls },
             "outcome": confirmed ? "continuous_video" :
                 (item.status == .failed ? "player_error" : "no_confirmed_video")
