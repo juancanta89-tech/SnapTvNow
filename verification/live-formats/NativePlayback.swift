@@ -66,7 +66,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             append(["stage": "finished"])
             return
         }
-        for (label, key) in [("gol peru", "PRIMARY_ID"), ("canal n", "CONTROL_ID")] {
+        for (label, key) in [("liga 1 max", "LIGA_ID"), ("gol peru l", "PRIMARY_ID"), ("canal n", "CONTROL_ID")] {
             guard let identifier = env[key], !identifier.isEmpty, identifier.count <= 14,
                   identifier.utf8.allSatisfy({ (48...57).contains($0) }) else { continue }
             for format in ["m3u8", "ts"] {

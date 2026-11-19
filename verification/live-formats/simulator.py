@@ -76,7 +76,8 @@ def run(alternatives=None, port=None):
         env["SIMCTL_CHILD_VARIANT_IDS"] = ",".join(alternatives)
         if port:
             env["SIMCTL_CHILD_SAMPLE_PORT"] = str(port)
-    env["SIMCTL_CHILD_PRIMARY_ID"] = selection.get("gol peru", "")
+    env["SIMCTL_CHILD_PRIMARY_ID"] = selection.get("gol peru l", "")
+    env["SIMCTL_CHILD_LIGA_ID"] = selection.get("liga 1 max", "")
     env["SIMCTL_CHILD_CONTROL_ID"] = selection.get("canal n", "")
     container = Path(command("xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"))
     output = container / "Documents" / "verification.jsonl"
@@ -84,7 +85,7 @@ def run(alternatives=None, port=None):
     command("xcrun", "simctl", "launch", udid, BUNDLE, env=env, timeout=75)
     observed = 0
     try:
-        deadline = time.monotonic() + (30 * (len(alternatives) + 3) + 30 if alternatives is not None else 145)
+        deadline = time.monotonic() + (30 * (len(alternatives) + 3) + 30 if alternatives is not None else 225)
         while time.monotonic() < deadline:
             if output.exists():
                 rows = output.read_text().splitlines()

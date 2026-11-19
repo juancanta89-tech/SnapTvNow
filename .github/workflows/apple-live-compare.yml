@@ -1,7 +1,7 @@
-name: Compare live video on an iPhone simulator
+name: Measure live HLS and TS in Apple player
 on:
   push:
-    branches: [verify/live-formats-20261118]
+    branches: [verify/live-transport-20261119]
     paths:
       - verification/live-formats/NativePlayback.swift
       - verification/live-formats/simulator.py
@@ -19,11 +19,7 @@ jobs:
           persist-credentials: false
       - name: Build and install on an iPhone simulator
         run: python3 verification/live-formats/simulator.py prepare
-      - name: Prepare FFmpeg for the matched audio comparison
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-        run: command -v ffprobe || brew install ffmpeg
-      - name: Compare the same-channel alternatives and matched audio
+      - name: Open both delivery formats in the native player
         env:
           DIEGUITO2026_PASSWORD: ${{ secrets.DIEGUITO2026_PASSWORD }}
-        run: python3 verification/live-formats/alternatives.py
+        run: python3 verification/live-formats/simulator.py run

@@ -80,37 +80,38 @@ def channels():
     groups = api("get_live_categories")
     if not isinstance(groups, list):
         raise ProbeError("catalog_denied")
-    peru = [g for g in groups if "peru" in words(g.get("category_name")).split()
-            and str(g.get("category_id", "")).isdigit()]
-    peru.sort(key=lambda g: words(g["category_name"]) != "peru")
-    if not peru:
-        raise ProbeError("peru_category_missing")
-    matches = {target: {} for target in TARGETS}
-    for group in peru[:4]:
+    groups = [g for g in groups if "peru" in words(g.get("category_name")).split()
+              and str(g.get("category_id", "")).isdigit()]
+    groups.sort(key=lambda g: words(g["category_name"]) != "peru")
+    result = {}
+    patterns = {
+        "liga 1 max": r"(?:liga\s*1|l\s*1)\s*max\b",
+        "gol peru l": r"gol\s*peru\s+l\b",
+        "canal n": r"canal\s+n\s+tv\b",
+    }
+    for group in groups[:4]:
         rows = api("get_live_streams", category_id=str(group["category_id"]))
         if not isinstance(rows, list):
             raise ProbeError("channel_list_unavailable")
         for row in rows:
+            label = words(row.get("name", ""))
             identifier = str(row.get("stream_id", ""))
-            name = re.sub(r"\bgolperu\b", "gol peru", words(row.get("name", "")))
             if not identifier.isdigit() or len(identifier) > 14:
                 continue
-            for target in TARGETS:
-                if re.match(r"^(?:(?:pe|per|peru) )?" + target + r"(?: |$)", name):
-                    matches[target][identifier] = name
-    selected = {}
-    for target, candidates in matches.items():
-        # Prefer the TV variant shown in Smarters. Preserve provider catalogue order for ties.
-        ordered = sorted(candidates, key=lambda i: ("tv" not in candidates[i].split(),
-                                                     len(candidates[i].split())))
-        if ordered:
-            selected[target] = ordered[0]
-        emit(case=target, stage="selection", matches=len(ordered),
-             tv_selected=bool(ordered and "tv" in candidates[ordered[0]].split()),
-             public_id=int(ordered[0]) if ordered else None)
-    if TARGETS[0] not in selected:
-        raise ProbeError("target_missing")
-    return selected
+            for target, expression in patterns.items():
+                if target not in result and re.fullmatch(
+                    r"(?:(?:peru|per|pe)\s+)?" + expression + r"(?:\s+[a-z0-9 ]*)?", label
+                ):
+                    result[target] = identifier
+                    emit(stage="selection", case=target, public_id=identifier, selected_name=label[:80])
+        if len(result) == len(patterns):
+            break
+    for target in patterns:
+        if target not in result:
+            emit(stage="selection", case=target, error="not_in_peru_catalog")
+    if not result:
+        raise ProbeError("no_test_channels")
+    return {name: result[name] for name in patterns if name in result}
 
 
 def media_url(identifier, fmt):
