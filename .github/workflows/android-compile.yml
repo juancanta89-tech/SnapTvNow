@@ -3,6 +3,7 @@ on:
   push:
     branches: [main, engineering-profile-v43]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: android-source-${{ github.ref }}
@@ -108,7 +109,7 @@ jobs:
             gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.snaptvnow.tv.LegacyNetworkSecurityConfigTest --no-daemon
             cp -R app/build/outputs/androidTest-results app/build/androidTest-results-api23
       - name: Upload playback test report
-        if: always()
+        if: failure() || (success() && github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
         with:
           name: SNAPTVNOW-playback-tests
@@ -120,11 +121,12 @@ jobs:
             app/build/androidTest-results-api28/
             app/build/androidTest-results-api23/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 2
       - name: Upload VPN test APK
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: SNAPTVNOW-VPN-Prueba
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2
